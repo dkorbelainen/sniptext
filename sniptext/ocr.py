@@ -50,7 +50,8 @@ class TesseractBackend(OCRBackend):
             raise RuntimeError("Tesseract not available")
 
         lang_code = self._get_lang_code()
-        custom_config = r'--oem 3 --psm 6'
+        # OEM 3: LSTM only, PSM 6: Assume uniform block of text
+        custom_config = r'--oem 1 --psm 6'
 
         text = self._tesseract.image_to_string(
             image,
@@ -213,6 +214,10 @@ class OCREngine:
         try:
             pil_image = self._prepare_image(image)
 
+            # Apply preprocessing if enabled
+            if self.config.preprocessing_enabled:
+                pil_image = self._preprocess_image(pil_image)
+
             text = self.backend.recognize(pil_image)
 
             if text:
@@ -226,6 +231,36 @@ class OCREngine:
         except Exception as e:
             logger.error(f"OCR recognition failed: {e}")
             return ""
+
+    def _preprocess_image(self, image: Image.Image) -> Image.Image:
+        """
+        Preprocess image for better OCR results.
+
+        Args:
+            image: Input PIL Image
+
+        Returns:
+            Preprocessed PIL Image
+        """
+        from PIL import ImageEnhance, ImageOps
+
+        # Convert to RGB if needed
+        if image.mode not in ('RGB', 'L'):
+            image = image.convert('RGB')
+
+        # Increase contrast slightly
+        enhancer = ImageEnhance.Contrast(image)
+        image = enhancer.enhance(1.2)
+
+        # Increase sharpness
+        enhancer = ImageEnhance.Sharpness(image)
+        image = enhancer.enhance(1.3)
+
+        # Auto contrast
+        image = ImageOps.autocontrast(image, cutoff=1)
+
+        logger.debug("Applied image preprocessing")
+        return image
 
     def _prepare_image(self, image: np.ndarray) -> Image.Image:
         """

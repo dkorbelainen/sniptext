@@ -17,9 +17,9 @@ class Config:
     display_server: str = "auto"  # auto, wayland, x11
 
     # OCR configuration
-    ocr_engine: str = "tesseract"  # tesseract (fast), easyocr (ML)
+    ocr_engine: str = "tesseract"  # tesseract (fast), easyocr
     ocr_model_path: Optional[Path] = None
-    ocr_language: str = "en"  # en, ru, multi
+    ocr_language: str = "multi"  # en, ru, multi
     ocr_confidence_threshold: float = 0.6
 
     # Performance
