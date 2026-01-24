@@ -7,7 +7,6 @@ from abc import ABC, abstractmethod
 
 from .config import Config
 from .analyzer import ImageAnalyzer
-from .confidence import ConfidenceModel
 
 
 class OCRBackend(ABC):
@@ -85,20 +84,25 @@ class EasyOCRBackend(OCRBackend):
     def __init__(self, config: Config):
         self.config = config
         self._reader = None
-        self._available = self._check_available()
+        self._available = None  # Lazy check
         self._initialized = False
 
     def _check_available(self) -> bool:
-        """Check if EasyOCR is available."""
+        """Check if EasyOCR is available (lazy check on first use)."""
+        if self._available is not None:
+            return self._available
+
         try:
             import easyocr
+            self._available = True
             return True
         except ImportError:
             logger.warning("EasyOCR not installed. Install with: pip install easyocr")
+            self._available = False
             return False
 
     def is_available(self) -> bool:
-        return self._available
+        return self._check_available()
 
     def _lazy_init(self):
         """Lazy initialization of EasyOCR reader."""
@@ -201,15 +205,13 @@ class OCREngine:
         }
         self.backend = self._initialize_backend()
 
-        # Initialize confidence model for adaptive ensemble
-        if self.config.adaptive_ensemble and self.config.ocr_engine == "ensemble":
-            self.confidence_model = ConfidenceModel()
-        else:
-            self.confidence_model = None
+        # Lazy initialization of confidence model (only created when first used)
+        self.confidence_model = None
+        self._confidence_enabled = self.config.adaptive_ensemble and self.config.ocr_engine == "ensemble"
 
         backend_name = type(self.backend).__name__.replace("Backend", "").lower()
         logger.info(f"OCR Engine initialized with backend: {backend_name}")
-        if self.confidence_model:
+        if self._confidence_enabled:
             logger.info(f"Adaptive ensemble: enabled")
 
     def _initialize_backend(self) -> OCRBackend:
@@ -240,6 +242,13 @@ class OCREngine:
         """Get list of available backend names."""
         return [name for name, backend in self.backends.items() if backend.is_available()]
 
+    def _get_confidence_model(self):
+        """Lazy initialization of confidence model (only when first needed)."""
+        if self.confidence_model is None and self._confidence_enabled:
+            from .confidence import ConfidenceModel
+            self.confidence_model = ConfidenceModel()
+        return self.confidence_model
+
     def recognize(self, image: np.ndarray) -> str:
         """
         Recognize text from image using adaptive strategy.
@@ -254,9 +263,10 @@ class OCREngine:
             pil_image = self._prepare_image(image)
 
             # Check if we should use adaptive strategy
-            if self.confidence_model and self.config.ocr_engine == "ensemble":
+            confidence_model = self._get_confidence_model()
+            if confidence_model and self.config.ocr_engine == "ensemble":
                 # Predict optimal strategy
-                strategy, confidence = self.confidence_model.predict_strategy(pil_image)
+                strategy, confidence = confidence_model.predict_strategy(pil_image)
 
                 if strategy == 'fast':
                     # Use single fast backend
