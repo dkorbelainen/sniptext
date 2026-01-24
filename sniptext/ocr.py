@@ -6,6 +6,7 @@ from loguru import logger
 from abc import ABC, abstractmethod
 
 from .config import Config
+from .postprocess import TextPostprocessor
 
 
 class OCRBackend(ABC):
@@ -169,6 +170,7 @@ class OCREngine:
             "easyocr": EasyOCRBackend(config),
         }
         self.backend = self._initialize_backend()
+        self.postprocessor = TextPostprocessor()
 
         backend_name = type(self.backend).__name__.replace("Backend", "").lower()
         logger.info(f"OCR Engine initialized with backend: {backend_name}")
@@ -220,6 +222,10 @@ class OCREngine:
 
             text = self.backend.recognize(pil_image)
 
+            # Apply postprocessing
+            if text and self.config.preprocessing_enabled:
+                text = self.postprocessor.process(text, self.config.ocr_language)
+
             if text:
                 logger.info(f"Recognized text: {len(text)} characters")
                 logger.debug(f"Text preview: {text[:100]}...")
@@ -242,24 +248,44 @@ class OCREngine:
         Returns:
             Preprocessed PIL Image
         """
-        from PIL import ImageEnhance, ImageOps
+        from PIL import ImageEnhance, ImageOps, ImageFilter
+        import cv2
 
         # Convert to RGB if needed
         if image.mode not in ('RGB', 'L'):
             image = image.convert('RGB')
 
-        # Increase contrast slightly
+        # Convert to numpy for opencv processing
+        img_array = np.array(image)
+
+        # Convert to grayscale
+        if len(img_array.shape) == 3:
+            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+        else:
+            gray = img_array
+
+        # Apply adaptive thresholding for better text extraction
+        binary = cv2.adaptiveThreshold(
+            gray, 255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            11, 2
+        )
+
+        # Denoise
+        denoised = cv2.fastNlMeansDenoising(binary, None, 10, 7, 21)
+
+        # Convert back to PIL
+        image = Image.fromarray(denoised)
+
+        # Enhance contrast
         enhancer = ImageEnhance.Contrast(image)
-        image = enhancer.enhance(1.2)
+        image = enhancer.enhance(1.5)
 
-        # Increase sharpness
-        enhancer = ImageEnhance.Sharpness(image)
-        image = enhancer.enhance(1.3)
+        # Sharpen
+        image = image.filter(ImageFilter.SHARPEN)
 
-        # Auto contrast
-        image = ImageOps.autocontrast(image, cutoff=1)
-
-        logger.debug("Applied image preprocessing")
+        logger.debug("Applied adaptive preprocessing")
         return image
 
     def _prepare_image(self, image: np.ndarray) -> Image.Image:
