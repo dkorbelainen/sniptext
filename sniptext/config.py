@@ -11,42 +11,30 @@ class Config:
     """Application configuration."""
 
     # Hotkey configuration
-    hotkey: str = "<ctrl>+<shift>+s"
+    hotkey: str = "<ctrl>+<alt>+t"
 
     # Display server
     display_server: str = "auto"  # auto, wayland, x11
 
     # OCR configuration
-    ocr_engine: str = "tesseract"  # tesseract (fast), easyocr
+    ocr_engine: str = "ensemble"  # ensemble, tesseract, easyocr
     ocr_model_path: Optional[Path] = None
-    ocr_language: str = "multi"  # en, ru, multi
+    ocr_language: str = "eng"  # Language code (eng, rus, eng+rus, etc.)
     ocr_confidence_threshold: float = 0.6
 
     # Performance
-    max_image_size: int = 4096  # max dimension
-    use_gpu: bool = False
-    num_threads: int = 4
-
-    # Storage
-    save_history: bool = True
-    history_db_path: Optional[Path] = None
-    max_history_items: int = 1000
+    max_image_size: int = 4096
+    use_gpu: bool = True  # Use GPU if available (CUDA for EasyOCR)
 
     # UI
-    show_confidence_overlay: bool = False
     notification_enabled: bool = True
 
-    # Advanced
-    preprocessing_enabled: bool = True
-    context_aware_detection: bool = True
 
     def __post_init__(self):
         """Post-initialization setup."""
         if self.ocr_model_path is None:
             self.ocr_model_path = Path.home() / ".local" / "share" / "sniptext" / "models"
 
-        if self.history_db_path is None:
-            self.history_db_path = Path.home() / ".local" / "share" / "sniptext" / "history.db"
 
     @classmethod
     def load(cls, config_path: Path) -> "Config":
@@ -60,12 +48,19 @@ class Config:
         with open(config_path, 'r') as f:
             data = yaml.safe_load(f) or {}
 
+        # Remove all old/unused parameters
+        deprecated = [
+            'preprocessing_enabled', 'preprocessing_mode', 'enable_text_correction',
+            'save_history', 'history_db_path', 'max_history_items',
+            'show_confidence_overlay', 'context_aware_detection', 'num_threads'
+        ]
+        for param in deprecated:
+            data.pop(param, None)
+
         # Convert string paths to Path objects
         if 'ocr_model_path' in data and data['ocr_model_path']:
             data['ocr_model_path'] = Path(data['ocr_model_path']).expanduser()
 
-        if 'history_db_path' in data and data['history_db_path']:
-            data['history_db_path'] = Path(data['history_db_path']).expanduser()
 
         return cls(**data)
 
@@ -73,12 +68,13 @@ class Config:
         """Save configuration to YAML file."""
         config_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Convert Path objects to strings for YAML
-        data = self.__dict__.copy()
-        if self.ocr_model_path:
-            data['ocr_model_path'] = str(self.ocr_model_path)
-        if self.history_db_path:
-            data['history_db_path'] = str(self.history_db_path)
+        # Convert all data to YAML-safe types
+        data = {}
+        for key, value in self.__dict__.items():
+            if isinstance(value, Path):
+                data[key] = str(value)
+            else:
+                data[key] = value
 
         with open(config_path, 'w') as f:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)

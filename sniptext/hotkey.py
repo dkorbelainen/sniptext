@@ -1,7 +1,7 @@
 """Hotkey management for SnipText."""
 
 import time
-from typing import Callable
+from typing import Callable, Optional
 from loguru import logger
 from pynput import keyboard
 
@@ -180,6 +180,7 @@ class HotkeyManager:
                     f"Recognized {len(text)} characters in {total_time:.3f}s "
                     f"(capture: {capture_time:.3f}s, OCR: {ocr_time:.3f}s)"
                 )
+
 
                 # Show notification if enabled
                 if self.config.notification_enabled:

@@ -50,8 +50,8 @@ def main():
     parser.add_argument(
         "--ocr-engine",
         type=str,
-        choices=["tesseract", "easyocr"],
-        help="OCR engine to use (default: from config or tesseract)",
+        choices=["tesseract", "easyocr", "ensemble"],
+        help="OCR engine: tesseract (fast), easyocr (accurate), ensemble (best quality)",
     )
 
     args = parser.parse_args()
@@ -76,6 +76,7 @@ def main():
         ocr_engine = OCREngine(config)
         clipboard_manager = ClipboardManager()
 
+
         logger.info("Components initialized successfully")
 
         if args.capture_now:
@@ -85,12 +86,53 @@ def main():
 
             if image is not None:
                 logger.info("Running OCR...")
-                text = ocr_engine.recognize(image)
+
+                # Ensemble mode: run both engines and combine
+                if args.ocr_engine == "ensemble":
+                    from sniptext.ensemble import EnsembleOCR, post_process_text
+                    from sniptext.ocr import TesseractBackend, EasyOCRBackend
+
+                    logger.info("Running ensemble mode (Tesseract + EasyOCR)...")
+
+                    results = []
+
+                    # Run Tesseract
+                    tesseract = TesseractBackend(config)
+                    if tesseract.is_available():
+                        logger.info("Running Tesseract...")
+                        from PIL import Image as PILImage
+                        pil_img = PILImage.fromarray(image)
+                        text_tess = tesseract.recognize(pil_img)
+                        results.append(text_tess)
+                        logger.info(f"Tesseract: {len(text_tess)} chars")
+
+                    # Run EasyOCR
+                    easyocr = EasyOCRBackend(config)
+                    if easyocr.is_available():
+                        logger.info("Running EasyOCR...")
+                        from PIL import Image as PILImage
+                        pil_img = PILImage.fromarray(image)
+                        text_easy = easyocr.recognize(pil_img)
+                        results.append(text_easy)
+                        logger.info(f"EasyOCR: {len(text_easy)} chars")
+
+                    # Combine results
+                    ensemble = EnsembleOCR()
+                    text = ensemble.combine_results(results)
+                    confidence = ensemble.calculate_confidence(results)
+
+                    # Post-process
+                    text = post_process_text(text)
+
+                    logger.info(f"Ensemble result: {len(text)} chars, confidence: {confidence:.2%}")
+                else:
+                    text = ocr_engine.recognize(image)
 
                 if text:
                     logger.info(f"Recognized text ({len(text)} chars)")
                     clipboard_manager.copy(text)
                     logger.info("Text copied to clipboard")
+
                     print(text)
                 else:
                     logger.warning("No text recognized")

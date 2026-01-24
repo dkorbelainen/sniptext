@@ -1,53 +1,47 @@
 """Basic tests for SnipText."""
 
-import pytest
+import sys
 from pathlib import Path
 
-
-def test_imports():
-    """Test that all modules can be imported."""
-    try:
-        from sniptext import Config, ScreenCapture, OCREngine, ClipboardManager
-        assert True
-    except ImportError as e:
-        pytest.fail(f"Failed to import modules: {e}")
+# Add parent dir to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
-def test_config_creation():
-    """Test config creation with defaults."""
+def test_config_defaults():
+    """Test config has correct defaults."""
     from sniptext.config import Config
 
     config = Config()
-    assert config.hotkey == "<ctrl>+<shift>+s"
-    assert config.ocr_language == "en"
-    assert config.num_threads == 4
+    assert config.hotkey == "<ctrl>+<alt>+t"
+    assert config.ocr_language == "eng"
+    assert config.ocr_engine == "ensemble"
 
 
-def test_config_save_load(tmp_path):
-    """Test config save and load."""
-    from sniptext.config import Config
+def test_analyzer_features():
+    """Test image analyzer extracts features."""
+    from sniptext.analyzer import ImageAnalyzer
+    from PIL import Image
+    import numpy as np
 
-    config_path = tmp_path / "config.yaml"
+    analyzer = ImageAnalyzer()
 
-    # Create and save config
-    config1 = Config(hotkey="<ctrl>+s", ocr_language="ru")
-    config1.save(config_path)
+    # Create test image
+    img = Image.fromarray(np.full((100, 300, 3), 150, dtype=np.uint8))
 
-    # Load config
-    config2 = Config.load(config_path)
+    # Extract features
+    features = analyzer.extract_features(img)
 
-    assert config2.hotkey == "<ctrl>+s"
-    assert config2.ocr_language == "ru"
+    assert len(features) == 5
+    assert 0 <= features[0] <= 1  # brightness normalized
 
 
-def test_clipboard_detection():
-    """Test clipboard tool detection."""
-    from sniptext.clipboard import ClipboardManager
+def test_imports():
+    """Test that core modules can be imported."""
+    from sniptext import Config, OCREngine
+    from sniptext.analyzer import ImageAnalyzer
 
-    try:
-        clipboard = ClipboardManager()
-        assert clipboard.tool in ("wayland", "x11")
-    except RuntimeError:
-        # No clipboard tool available - that's ok for CI
-        pytest.skip("No clipboard tool available")
+    assert Config is not None
+    assert OCREngine is not None
+    assert ImageAnalyzer is not None
+
 

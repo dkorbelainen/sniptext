@@ -6,7 +6,7 @@ from loguru import logger
 from abc import ABC, abstractmethod
 
 from .config import Config
-from .postprocess import TextPostprocessor
+from .analyzer import ImageAnalyzer
 
 
 class OCRBackend(ABC):
@@ -30,6 +30,7 @@ class TesseractBackend(OCRBackend):
         self.config = config
         self._tesseract = None
         self._available = self._check_available()
+        self._analyzer = ImageAnalyzer()
 
     def _check_available(self) -> bool:
         """Check if Tesseract is available."""
@@ -46,16 +47,21 @@ class TesseractBackend(OCRBackend):
         return self._available
 
     def recognize(self, image: Image.Image) -> str:
-        """Recognize text using Tesseract."""
+        """Recognize text using Tesseract with adaptive parameters."""
         if not self.is_available():
             raise RuntimeError("Tesseract not available")
 
+        # Analyze image and optimize
+        enhanced_image = self._analyzer.enhance_for_ocr(image)
+        psm_mode = self._analyzer.suggest_psm_mode(image)
+
         lang_code = self._get_lang_code()
-        # OEM 3: LSTM only, PSM 6: Assume uniform block of text
-        custom_config = r'--oem 1 --psm 6'
+        custom_config = f'--oem 1 --psm {psm_mode}'
+
+        logger.debug(f"Using Tesseract with PSM {psm_mode}")
 
         text = self._tesseract.image_to_string(
-            image,
+            enhanced_image,
             lang=lang_code,
             config=custom_config
         )
@@ -138,20 +144,43 @@ class EasyOCRBackend(OCRBackend):
         for detection in results:
             bbox, text, confidence = detection
 
-            if confidence >= self.config.ocr_confidence_threshold:
+            # Lower threshold to catch more text (0.3 instead of 0.6)
+            if confidence >= max(0.3, self.config.ocr_confidence_threshold * 0.5):
                 lines.append(text)
                 logger.debug(f"Text: '{text}' (confidence: {confidence:.2f})")
+            else:
+                logger.debug(f"Skipped low confidence: '{text}' ({confidence:.2f})")
 
         return "\n".join(lines)
 
-    def _get_lang_codes(self) -> list:
+    def _get_lang_codes(self) -> list[str]:
         """Get EasyOCR language codes."""
+        # Convert Tesseract codes to EasyOCR codes
         lang_map = {
-            "en": ["en"],
-            "ru": ["ru"],
-            "multi": ["en", "ru"],
+            'eng': 'en',
+            'rus': 'ru',
+            'jpn': 'ja',
+            'kor': 'ko',
+            'chi_sim': 'ch_sim',
+            'chi_tra': 'ch_tra',
+            'fra': 'fr',
+            'deu': 'de',
+            'spa': 'es',
         }
-        return lang_map.get(self.config.ocr_language, ["en"])
+
+        # Split by + for multiple languages
+        tess_langs = self.config.ocr_language.split('+')
+        easy_langs = []
+
+        for tl in tess_langs:
+            tl = tl.strip()
+            if tl in lang_map:
+                easy_langs.append(lang_map[tl])
+            else:
+                # Try to use as-is (might work)
+                easy_langs.append(tl)
+
+        return easy_langs if easy_langs else ['en']
 
 
 class OCREngine:
@@ -170,7 +199,6 @@ class OCREngine:
             "easyocr": EasyOCRBackend(config),
         }
         self.backend = self._initialize_backend()
-        self.postprocessor = TextPostprocessor()
 
         backend_name = type(self.backend).__name__.replace("Backend", "").lower()
         logger.info(f"OCR Engine initialized with backend: {backend_name}")
@@ -216,15 +244,8 @@ class OCREngine:
         try:
             pil_image = self._prepare_image(image)
 
-            # Apply preprocessing if enabled
-            if self.config.preprocessing_enabled:
-                pil_image = self._preprocess_image(pil_image)
 
             text = self.backend.recognize(pil_image)
-
-            # Apply postprocessing
-            if text and self.config.preprocessing_enabled:
-                text = self.postprocessor.process(text, self.config.ocr_language)
 
             if text:
                 logger.info(f"Recognized text: {len(text)} characters")
@@ -238,55 +259,6 @@ class OCREngine:
             logger.error(f"OCR recognition failed: {e}")
             return ""
 
-    def _preprocess_image(self, image: Image.Image) -> Image.Image:
-        """
-        Preprocess image for better OCR results.
-
-        Args:
-            image: Input PIL Image
-
-        Returns:
-            Preprocessed PIL Image
-        """
-        from PIL import ImageEnhance, ImageOps, ImageFilter
-        import cv2
-
-        # Convert to RGB if needed
-        if image.mode not in ('RGB', 'L'):
-            image = image.convert('RGB')
-
-        # Convert to numpy for opencv processing
-        img_array = np.array(image)
-
-        # Convert to grayscale
-        if len(img_array.shape) == 3:
-            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-        else:
-            gray = img_array
-
-        # Apply adaptive thresholding for better text extraction
-        binary = cv2.adaptiveThreshold(
-            gray, 255,
-            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY,
-            11, 2
-        )
-
-        # Denoise
-        denoised = cv2.fastNlMeansDenoising(binary, None, 10, 7, 21)
-
-        # Convert back to PIL
-        image = Image.fromarray(denoised)
-
-        # Enhance contrast
-        enhancer = ImageEnhance.Contrast(image)
-        image = enhancer.enhance(1.5)
-
-        # Sharpen
-        image = image.filter(ImageFilter.SHARPEN)
-
-        logger.debug("Applied adaptive preprocessing")
-        return image
 
     def _prepare_image(self, image: np.ndarray) -> Image.Image:
         """
