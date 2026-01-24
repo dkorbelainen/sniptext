@@ -6,10 +6,12 @@ Useful for extracting text from images, PDFs, videos, or any non-selectable cont
 
 ## Features
 
-- **Ensemble OCR**: Combines Tesseract and EasyOCR for better accuracy
+- **Adaptive Ensemble OCR**: Automatic selection between fast and accurate modes
+- **Intelligent merging**: Combines Tesseract and EasyOCR results using smart heuristics
 - **Simple workflow**: Hotkey → Select area → Text copied
 - **Multi-language**: Supports any Tesseract/EasyOCR language
 - **Works on Wayland and X11**
+- **GPU acceleration**: Uses CUDA when available
 
 ## Installation
 
@@ -88,19 +90,26 @@ Config file: `~/.config/sniptext/config.yaml` (created on first run)
 
 ```yaml
 # OCR engine mode
-ocr_engine: ensemble   # ensemble (best), tesseract, easyocr
+ocr_engine: ensemble        # ensemble (best), tesseract, easyocr
+adaptive_ensemble: true     # auto fast/accurate mode selection
 
 # Language - use Tesseract language codes
-ocr_language: eng      # English only
-# ocr_language: rus      # Russian only
-# ocr_language: eng+rus  # English + Russian
-# ocr_language: jpn      # Japanese
+ocr_language: eng           # English only
+# ocr_language: rus         # Russian only
+# ocr_language: eng+rus     # English + Russian
+# ocr_language: jpn         # Japanese
 # See all codes: tesseract --list-langs
 
 # Other settings
 notification_enabled: true
-use_gpu: true          # GPU acceleration (auto-detects CUDA)
+use_gpu: true               # GPU acceleration (auto-detects CUDA)
 ```
+
+**Adaptive Ensemble**: When enabled with `ensemble` mode, a machine learning model analyzes each image and automatically chooses:
+- **Fast mode** (Tesseract only) for clear, high-contrast screenshots
+- **Ensemble mode** (both engines) for difficult, low-contrast images
+
+This gives you both speed and accuracy without manual switching.
 
 GPU is enabled by default - automatically uses CUDA if available, falls back to CPU if not.
 
@@ -116,21 +125,29 @@ GPU is enabled by default - automatically uses CUDA if available, falls back to 
 
 Combine with `+`: `eng+fra+deu`
 
-## How Ensemble Works
+## How It Works
 
-The ensemble mode combines two OCR engines for better accuracy:
+### Adaptive Selection
 
 1. **Capture** screen region
-2. **Process** image (auto brightness/contrast/upscaling)
-3. **Run both** Tesseract and EasyOCR
-4. **Compare** results line-by-line
-5. **Score each variant:**
+2. **Analyze** image features (brightness, contrast, sharpness)
+3. **Predict** optimal strategy using gradient boosting model
+4. **Execute** either fast or ensemble mode
+
+### Ensemble Mode
+
+When ensemble is used (for difficult images):
+
+1. **Process** image (auto brightness/contrast/upscaling)
+2. **Run both** Tesseract and EasyOCR
+3. **Compare** results line-by-line
+4. **Score each variant:**
    - Line completeness (length)
    - Proper punctuation
    - Character quality
    - Language-specific features
-6. **Select** best variant per line
-7. **Post-process** (fix spacing, punctuation)
+5. **Select** best variant per line
+6. **Post-process** (fix spacing, punctuation)
 
 Ensemble typically produces better results by choosing the best output from each engine.
 

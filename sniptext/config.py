@@ -21,6 +21,7 @@ class Config:
     ocr_model_path: Optional[Path] = None
     ocr_language: str = "eng"  # Language code (eng, rus, eng+rus, etc.)
     ocr_confidence_threshold: float = 0.6
+    adaptive_ensemble: bool = True  # Automatically choose fast/ensemble mode based on image quality
 
     # Performance
     max_image_size: int = 4096

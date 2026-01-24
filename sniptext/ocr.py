@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 
 from .config import Config
 from .analyzer import ImageAnalyzer
+from .confidence import ConfidenceModel
 
 
 class OCRBackend(ABC):
@@ -200,8 +201,16 @@ class OCREngine:
         }
         self.backend = self._initialize_backend()
 
+        # Initialize confidence model for adaptive ensemble
+        if self.config.adaptive_ensemble and self.config.ocr_engine == "ensemble":
+            self.confidence_model = ConfidenceModel()
+        else:
+            self.confidence_model = None
+
         backend_name = type(self.backend).__name__.replace("Backend", "").lower()
         logger.info(f"OCR Engine initialized with backend: {backend_name}")
+        if self.confidence_model:
+            logger.info(f"Adaptive ensemble: enabled")
 
     def _initialize_backend(self) -> OCRBackend:
         """Initialize the appropriate OCR backend."""
@@ -233,7 +242,7 @@ class OCREngine:
 
     def recognize(self, image: np.ndarray) -> str:
         """
-        Recognize text from image.
+        Recognize text from image using adaptive strategy.
 
         Args:
             image: Input image (numpy array)
@@ -244,11 +253,34 @@ class OCREngine:
         try:
             pil_image = self._prepare_image(image)
 
+            # Check if we should use adaptive strategy
+            if self.confidence_model and self.config.ocr_engine == "ensemble":
+                # Predict optimal strategy
+                strategy, confidence = self.confidence_model.predict_strategy(pil_image)
 
-            text = self.backend.recognize(pil_image)
+                if strategy == 'fast':
+                    # Use single fast backend
+                    logger.debug(f"Using fast mode (confidence: {confidence:.2f})")
+                    text = self.backend.recognize(pil_image)
+                else:
+                    # Use ensemble for difficult images
+                    logger.debug(f"Using ensemble mode (confidence: {confidence:.2f})")
+                    text = self._recognize_ensemble(pil_image)
+
+                if text:
+                    logger.info(f"Recognized text: {len(text)} characters (strategy: {strategy})")
+            elif self.config.ocr_engine == "ensemble":
+                # Always use ensemble without adaptive selection
+                text = self._recognize_ensemble(pil_image)
+                if text:
+                    logger.info(f"Recognized text: {len(text)} characters (mode: ensemble)")
+            else:
+                # Use single backend
+                text = self.backend.recognize(pil_image)
+                if text:
+                    logger.info(f"Recognized text: {len(text)} characters")
 
             if text:
-                logger.info(f"Recognized text: {len(text)} characters")
                 logger.debug(f"Text preview: {text[:100]}...")
             else:
                 logger.debug("No text recognized")
@@ -258,6 +290,46 @@ class OCREngine:
         except Exception as e:
             logger.error(f"OCR recognition failed: {e}")
             return ""
+
+    def _recognize_ensemble(self, image: Image.Image) -> str:
+        """
+        Recognize using ensemble of available backends.
+
+        Args:
+            image: PIL Image
+
+        Returns:
+            Combined text result
+        """
+        from .ensemble import EnsembleOCR
+
+        results = []
+
+        # Collect results from all available backends
+        for name, backend in self.backends.items():
+            if backend.is_available():
+                try:
+                    logger.debug(f"Running {name}...")
+                    text = backend.recognize(image)
+                    if text:
+                        results.append(text)
+                        logger.debug(f"{name}: {len(text)} chars")
+                except Exception as e:
+                    logger.warning(f"{name} failed: {e}")
+
+        if not results:
+            return ""
+
+        if len(results) == 1:
+            return results[0]
+
+        # Combine results using ensemble
+        ensemble = EnsembleOCR()
+        combined = ensemble.combine_results(results)
+
+        logger.info(f"Ensemble combined {len(results)} results")
+
+        return combined
 
 
     def _prepare_image(self, image: np.ndarray) -> Image.Image:

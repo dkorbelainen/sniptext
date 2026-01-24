@@ -1,4 +1,4 @@
-"""Image analyzer for OCR optimization using ML."""
+"""Image analyzer for OCR optimization."""
 
 import numpy as np
 from PIL import Image, ImageStat
@@ -49,11 +49,18 @@ class ImageAnalyzer:
         width, height = image.size
         size_ratio = width / height if height > 0 else 1.0
 
+        # Better normalization
+        # Contrast: typical range 10-80 for text images
+        normalized_contrast = min(contrast / 60.0, 1.0)
+
+        # Sharpness: typical range 5-50 for text images
+        normalized_sharpness = min(sharpness / 30.0, 1.0)
+
         features = np.array([
-            brightness / 255.0,    # normalize to 0-1
-            contrast / 128.0,      # normalize
-            sharpness / 100.0,     # normalize
-            has_color,             # binary
+            brightness / 255.0,      # normalize to 0-1
+            normalized_contrast,     # normalize to 0-1
+            normalized_sharpness,    # normalize to 0-1
+            has_color,               # binary
             min(size_ratio, 5.0) / 5.0  # cap at 5:1 ratio
         ])
 
