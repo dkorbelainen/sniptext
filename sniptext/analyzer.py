@@ -2,7 +2,6 @@
 
 import numpy as np
 from PIL import Image, ImageStat
-from sklearn.ensemble import RandomForestClassifier
 from loguru import logger
 
 

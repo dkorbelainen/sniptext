@@ -3,7 +3,6 @@
 import numpy as np
 from pathlib import Path
 import pickle
-from sklearn.ensemble import GradientBoostingClassifier
 from loguru import logger
 from PIL import Image
 
@@ -14,10 +13,11 @@ class ConfidenceModel:
     """Model to predict OCR confidence and choose optimal strategy."""
 
     def __init__(self, model_path: Path = None):
-        """Initialize confidence model."""
+        """Initialize confidence model (lazy initialization)."""
         self.analyzer = ImageAnalyzer()
         self.model = None
         self.trained = False
+        self._initialized = False
 
         if model_path is None:
             config_dir = Path.home() / ".config" / "sniptext"
@@ -25,12 +25,19 @@ class ConfidenceModel:
 
         self.model_path = Path(model_path)
 
+    def _ensure_initialized(self):
+        """Ensure model is loaded/trained (called on first use)."""
+        if self._initialized:
+            return
+
         # Try to load existing model
         self._load_model()
 
         # Initialize with default model if no trained model exists
         if not self.trained:
             self._initialize_default_model()
+
+        self._initialized = True
 
     def _initialize_default_model(self):
         """Initialize model with synthetic training data based on heuristics."""
@@ -90,7 +97,9 @@ class ConfidenceModel:
         X_train = np.array(X_train)
         y_train = np.array(y_train)
 
-        # Train model
+        # Train model (lazy import sklearn to speed up startup)
+        from sklearn.ensemble import GradientBoostingClassifier
+
         self.model = GradientBoostingClassifier(
             n_estimators=50,
             max_depth=3,
@@ -119,6 +128,9 @@ class ConfidenceModel:
             strategy: 'fast' or 'ensemble'
             confidence: probability score (0-1)
         """
+        # Ensure model is initialized on first use
+        self._ensure_initialized()
+
         # Extract features
         features = self.analyzer.extract_features(image)
 
