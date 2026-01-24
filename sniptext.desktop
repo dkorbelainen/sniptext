@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=SnipText
+Comment=Screen capture OCR tool
+Exec=sniptext --capture-now
+Icon=text-x-generic
+Terminal=false
+Type=Application
+Categories=Utility;Graphics;TextTools;
+Keywords=ocr;screenshot;capture;text;recognition;
