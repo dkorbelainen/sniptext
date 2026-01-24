@@ -1,0 +1,13 @@
+[Unit]
+Description=SnipText OCR Screen Capture Service
+Documentation=https://github.com/dkorbelainen/sniptext
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/sniptext
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

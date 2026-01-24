@@ -119,8 +119,12 @@ def main():
                 clipboard_manager=clipboard_manager,
             )
 
-            logger.info(f"Press {config.hotkey} to capture and OCR")
-            logger.info("Press Ctrl+C to exit")
+            print(f"\nSnipText is now running!")
+            print(f"  Hotkey: {config.hotkey}")
+            print(f"  OCR: {config.ocr_engine}")
+            print(f"  Config: {args.config}")
+            print(f"\nPress {config.hotkey} to capture screen and extract text")
+            print("Press Ctrl+C to exit\n")
 
             hotkey_manager.start()
 
