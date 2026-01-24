@@ -1,0 +1,18 @@
+# Core dependencies
+pillow>=10.0.0
+numpy>=1.24.0
+pynput>=1.7.6
+pyyaml>=6.0
+loguru>=0.7.0
+
+# OCR engines
+pytesseract>=0.3.10
+
+# Optional: EasyOCR backend (large downloads ~500MB)
+# easyocr>=1.7.0
+# torch>=2.0.0
+# torchvision>=0.15.0
+
+# Development
+pytest>=7.4.0
+
