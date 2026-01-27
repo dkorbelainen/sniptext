@@ -54,7 +54,7 @@ class Config:
 
         # Remove all old/unused parameters
         deprecated = [
-            'preprocessing_enabled', 'preprocessing_mode', 'enable_text_correction',
+            'preprocessing_enabled', 'preprocessing_mode',
             'save_history', 'history_db_path', 'max_history_items',
             'show_confidence_overlay', 'context_aware_detection', 'num_threads'
         ]
