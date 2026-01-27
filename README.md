@@ -164,6 +164,3 @@ use_gpu: true               # GPU acceleration (auto-detects CUDA)
 This gives you both speed and accuracy without manual switching.
 
 GPU is enabled by default - automatically uses CUDA if available, falls back to CPU if not.
-
-
-

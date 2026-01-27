@@ -5,6 +5,7 @@ from difflib import SequenceMatcher
 from collections import Counter
 from loguru import logger
 
+from .corrector import OCRCorrector
 
 class EnsembleOCR:
     """Combine results from multiple OCR engines using voting."""
@@ -131,12 +132,15 @@ class EnsembleOCR:
         return avg_similarity
 
 
-def post_process_text(text: str) -> str:
+def post_process_text(text: str, language: str = "eng", enable_correction: bool = True, aggressive: bool = False) -> str:
     """
-    Post-process OCR text - minimal universal cleaning.
+    Post-process OCR text with optional correction.
 
     Args:
         text: Raw OCR text
+        language: Language code
+        enable_correction: Apply error corrections
+        aggressive: Apply aggressive corrections
 
     Returns:
         Cleaned text
@@ -144,25 +148,18 @@ def post_process_text(text: str) -> str:
     if not text:
         return text
 
-    import re
+    if enable_correction:
+        corrector = OCRCorrector(language)
+        text = corrector.correct(text, aggressive=aggressive)
+    else:
+        import re
+        text = re.sub(r' {2,}', ' ', text)
+        text = re.sub(r'\s+([.,!?;:])', r'\1', text)
+        text = re.sub(r'([.,!?:;])([а-яА-ЯёЁa-zA-Z])', r'\1 \2', text)
 
-    # Only universal fixes that work for any language:
+        lines = [l.strip() for l in text.split('\n')]
+        lines = [l for l in lines if l]
+        text = '\n'.join(lines)
 
-    # 1. Fix multiple spaces
-    text = re.sub(r' {2,}', ' ', text)
-
-    # 2. Fix spaces before punctuation
-    text = re.sub(r'\s+([.,!?;:])', r'\1', text)
-
-    # 3. Fix missing space after punctuation
-    text = re.sub(r'([.,!?:;])([а-яА-ЯёЁa-zA-Z])', r'\1 \2', text)
-
-    # 4. Remove empty lines
-    lines = [l.strip() for l in text.split('\n')]
-    lines = [l for l in lines if l]
-
-    text = '\n'.join(lines)
-
-    logger.debug("Applied universal post-processing")
 
     return text

@@ -292,6 +292,15 @@ class OCREngine:
 
             if text:
                 logger.debug(f"Text preview: {text[:100]}...")
+
+                if self.config.enable_text_correction:
+                    from .ensemble import post_process_text
+                    text = post_process_text(
+                        text,
+                        language=self.config.ocr_language,
+                        enable_correction=True,
+                        aggressive=self.config.aggressive_correction
+                    )
             else:
                 logger.debug("No text recognized")
 

@@ -30,6 +30,9 @@ class Config:
     # UI
     notification_enabled: bool = True
 
+    # Text correction
+    enable_text_correction: bool = True  # Apply OCR error corrections
+    aggressive_correction: bool = False  # Apply more aggressive corrections (may introduce errors)
 
     def __post_init__(self):
         """Post-initialization setup."""
