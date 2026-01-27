@@ -98,23 +98,27 @@ class ConfidenceModel:
         y_train = np.array(y_train)
 
         # Train model (lazy import sklearn to speed up startup)
-        from sklearn.ensemble import GradientBoostingClassifier
+        try:
+            from sklearn.ensemble import GradientBoostingClassifier
 
-        self.model = GradientBoostingClassifier(
-            n_estimators=50,
-            max_depth=3,
-            learning_rate=0.1,
-            random_state=42
-        )
-        self.model.fit(X_train, y_train)
-        self.trained = True
+            self.model = GradientBoostingClassifier(
+                n_estimators=50,
+                max_depth=3,
+                learning_rate=0.1,
+                random_state=42
+            )
+            self.model.fit(X_train, y_train)
+            self.trained = True
 
-        # Log feature importances
-        feature_names = ['brightness', 'contrast', 'sharpness', 'has_color', 'size_ratio']
-        importances = self.model.feature_importances_
-        logger.debug(f"Feature importances: {dict(zip(feature_names, importances))}")
+            # Log feature importances
+            feature_names = ['brightness', 'contrast', 'sharpness', 'has_color', 'size_ratio']
+            importances = self.model.feature_importances_
+            logger.debug(f"Feature importances: {dict(zip(feature_names, importances))}")
 
-        logger.info("Baseline confidence model initialized")
+            logger.info("Baseline confidence model initialized")
+        except ImportError:
+            logger.warning("scikit-learn not available, using heuristic-only mode")
+            self.trained = False
 
     def predict_strategy(self, image: Image.Image) -> tuple[str, float]:
         """
