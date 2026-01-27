@@ -1,7 +1,6 @@
 """Hotkey management for SnipText."""
 
 import time
-from typing import Callable, Optional
 from loguru import logger
 from pynput import keyboard
 
@@ -67,6 +66,27 @@ class HotkeyManager:
 
     def start(self) -> None:
         """Start listening for hotkeys."""
+        # Check for Wayland
+        import os
+        session_type = os.environ.get('XDG_SESSION_TYPE', '').lower()
+        if session_type == 'wayland':
+            logger.warning("=" * 60)
+            logger.warning("WAYLAND DETECTED - Hotkeys may not work!")
+            logger.warning("=" * 60)
+            logger.warning("pynput cannot capture global hotkeys on Wayland.")
+            logger.warning("Workaround: Use a keyboard shortcut in your DE/WM to run:")
+            logger.warning("  sniptext --capture-now")
+            logger.warning("")
+            logger.warning("Example for Hyprland (~/.config/hypr/hyprland.conf):")
+            logger.warning("  bind = SUPER SHIFT, S, exec, sniptext --capture-now")
+            logger.warning("")
+            logger.warning("Example for Sway (~/.config/sway/config):")
+            logger.warning("  bindsym $mod+Shift+s exec sniptext --capture-now")
+            logger.warning("")
+            logger.warning("Example for GNOME:")
+            logger.warning("  Settings → Keyboard → Custom Shortcuts")
+            logger.warning("=" * 60)
+
         current_keys = set()
 
         def on_press(key):
@@ -98,10 +118,26 @@ class HotkeyManager:
             except Exception as e:
                 logger.error(f"Error in key release handler: {e}")
 
-        # Start keyboard listener
-        with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
-            self.listener = listener
-            listener.join()
+        try:
+            # Start keyboard listener
+            with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
+                self.listener = listener
+                listener.join()
+        except Exception as e:
+            logger.error("=" * 60)
+            logger.error("FAILED TO START KEYBOARD LISTENER")
+            logger.error("=" * 60)
+            logger.error(f"Error: {e}")
+            logger.error("")
+            logger.error("This usually happens on Wayland or without proper permissions.")
+            logger.error("")
+            logger.error("Solutions:")
+            logger.error("1. Use --capture-now flag instead of hotkey mode")
+            logger.error("2. Bind a keyboard shortcut in your DE/WM to run:")
+            logger.error("     sniptext --capture-now")
+            logger.error("3. If on X11, ensure your user has input permissions")
+            logger.error("=" * 60)
+            raise
 
     def _is_hotkey_pressed(self, current_keys: set) -> bool:
         """

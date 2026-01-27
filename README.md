@@ -15,28 +15,22 @@ Useful for extracting text from images, PDFs, videos, or any non-selectable cont
 
 ## Installation
 
-### 1. System Dependencies
+### Arch Linux (AUR)
 
-**Arch Linux:**
 ```bash
-# Base OCR engine + your language data
-sudo pacman -S tesseract tesseract-data-eng
-
-# Add other languages as needed:
-# sudo pacman -S tesseract-data-rus  # Russian
-# sudo pacman -S tesseract-data-chi-sim  # Chinese Simplified
-# sudo pacman -S tesseract-data-jpn  # Japanese
-# See: pacman -Ss tesseract-data
-
-# Screen capture tools
-sudo pacman -S slurp grim wl-clipboard  # Wayland
-# OR for X11:
-# sudo pacman -S maim xclip
+yay -S sniptext
+# or: paru -S sniptext
 ```
+
+After installation, you'll see instructions for setting up a keyboard shortcut.
+
+### Other Linux Distributions
+
+#### 1. System Dependencies
 
 **Ubuntu/Debian:**
 ```bash
-sudo apt install tesseract-ocr tesseract-ocr-eng
+sudo apt install tesseract-ocr tesseract-ocr-eng python3-pip
 # Add languages: sudo apt install tesseract-ocr-rus tesseract-ocr-fra etc.
 
 # Wayland:
@@ -45,44 +39,102 @@ sudo apt install slurp grim wl-clipboard
 sudo apt install maim xclip
 ```
 
-### 2. Python Setup
-
+**Fedora:**
 ```bash
-git clone https://github.com/dkorbelainen/sniptext
-cd sniptext
-
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# For ensemble mode:
-pip install easyocr torch torchvision
+sudo dnf install tesseract tesseract-langpack-eng python3-pip
+# Wayland:
+sudo dnf install slurp grim wl-clipboard
+# X11:
+sudo dnf install maim xclip
 ```
 
-### 3. Global Hotkey
+#### 2. Install SnipText
 
-Add to your window manager config (replace `/path/to` with actual path):
+```bash
+pip install --user sniptext
+# or system-wide:
+sudo pip install sniptext
+```
+
+#### 3. Setup Keyboard Shortcut
+
+⚠️ **REQUIRED: Manual keybind setup**
+
+SnipText requires you to configure a keyboard shortcut in your window manager or desktop environment.
+
+**Recommended keybind: `Ctrl+Alt+T`**
+
+Configure your system to run this command when the keybind is pressed:
+```bash
+sniptext --capture-now
+```
+
+#### Configuration Examples:
 
 **Hyprland** (`~/.config/hypr/hyprland.conf`):
 ```
-bind = CTRL ALT, T, exec, /path/to/sniptext/quick-ocr.sh
+bind = CTRL ALT, T, exec, sniptext --capture-now
 ```
 
-**i3/Sway** (`~/.config/i3/config` or `~/.config/sway/config`):
+**Sway** (`~/.config/sway/config`):
 ```
-bindsym Ctrl+Alt+t exec /path/to/sniptext/quick-ocr.sh
+bindsym Ctrl+Alt+t exec sniptext --capture-now
 ```
 
-**KDE/GNOME**: Use System Settings → Keyboard Shortcuts
+**i3** (`~/.config/i3/config`):
+```
+bindsym Ctrl+Alt+t exec sniptext --capture-now
+```
 
-Feel free to change the hotkey if you feel like doing so.
-Reload config after adding hotkey.
+**GNOME**: Settings → Keyboard → Keyboard Shortcuts → Custom Shortcuts
+- Click "+" to add new shortcut
+- Name: `SnipText OCR`
+- Command: `sniptext --capture-now`
+- Set shortcut: Press `Ctrl+Alt+T`
+
+**KDE Plasma**: System Settings → Shortcuts → Custom Shortcuts
+- Right-click → New → Global Shortcut → Command/URL
+- Name: `SnipText OCR`
+- Trigger: Set to `Ctrl+Alt+T`
+- Action: `sniptext --capture-now`
+
+Feel free to use any keybind you prefer (e.g., `Super+Shift+S`).
+
+**Why manual setup?** On Wayland, applications cannot register global hotkeys due to security restrictions. Even on X11, WM-level shortcuts are more reliable than application-level hotkeys.
 
 ## Usage
 
-**With hotkey:** Press `Ctrl+Alt+T`, select area with mouse
+1. Press your configured keybind (e.g., `Ctrl+Alt+T`)
+2. Select screen area with mouse
+3. Text is automatically copied to clipboard
 
-**Manual:** `cd sniptext && ./quick-ocr.sh`
+**Test from terminal:**
+```bash
+sniptext --capture-now
+```
+
+## Language Support
+
+SnipText uses Tesseract OCR, which supports 100+ languages.
+
+**Arch Linux:**
+```bash
+# Install additional language packs
+sudo pacman -S tesseract-data-rus    # Russian
+sudo pacman -S tesseract-data-jpn    # Japanese
+sudo pacman -S tesseract-data-chi-sim # Chinese Simplified
+# See all: pacman -Ss tesseract-data
+```
+
+**Ubuntu/Debian:**
+```bash
+sudo apt install tesseract-ocr-rus tesseract-ocr-jpn
+```
+
+Then update your config file to use the language(s):
+```yaml
+ocr_language: eng+rus  # Multiple languages
+```
 
 ## Configuration
 
@@ -113,41 +165,5 @@ This gives you both speed and accuracy without manual switching.
 
 GPU is enabled by default - automatically uses CUDA if available, falls back to CPU if not.
 
-**Common language codes:**
-- `eng` - English
-- `rus` - Russian
-- `fra` - French
-- `deu` - German
-- `spa` - Spanish
-- `chi_sim` - Chinese Simplified
-- `jpn` - Japanese
-- `kor` - Korean
 
-Combine with `+`: `eng+fra+deu`
-
-## How It Works
-
-### Adaptive Selection
-
-1. **Capture** screen region
-2. **Analyze** image features (brightness, contrast, sharpness)
-3. **Predict** optimal strategy using gradient boosting model
-4. **Execute** either fast or ensemble mode
-
-### Ensemble Mode
-
-When ensemble is used (for difficult images):
-
-1. **Process** image (auto brightness/contrast/upscaling)
-2. **Run both** Tesseract and EasyOCR
-3. **Compare** results line-by-line
-4. **Score each variant:**
-   - Line completeness (length)
-   - Proper punctuation
-   - Character quality
-   - Language-specific features
-5. **Select** best variant per line
-6. **Post-process** (fix spacing, punctuation)
-
-Ensemble typically produces better results by choosing the best output from each engine.
 
