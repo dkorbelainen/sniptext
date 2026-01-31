@@ -2,7 +2,7 @@
 
 import yaml
 from pathlib import Path
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 
