@@ -58,6 +58,7 @@ class TesseractBackend(OCRBackend):
         lang_code = self._get_lang_code()
         custom_config = f'--oem 1 --psm {psm_mode}'
 
+        logger.info(f"Tesseract: lang={lang_code}, PSM={psm_mode}")
         logger.debug(f"Using Tesseract with PSM {psm_mode}")
 
         text = self._tesseract.image_to_string(
@@ -70,12 +71,7 @@ class TesseractBackend(OCRBackend):
 
     def _get_lang_code(self) -> str:
         """Get Tesseract language code."""
-        lang_map = {
-            "en": "eng",
-            "ru": "rus",
-            "multi": "eng+rus",
-        }
-        return lang_map.get(self.config.ocr_language, "eng")
+        return self.config.ocr_language
 
 
 class EasyOCRBackend(OCRBackend):
@@ -211,6 +207,8 @@ class OCREngine:
 
         backend_name = type(self.backend).__name__.replace("Backend", "").lower()
         logger.info(f"OCR Engine initialized with backend: {backend_name}")
+        logger.info(f"OCR Language: {config.ocr_language}")
+        logger.info(f"Text Correction: {config.enable_text_correction}")
         if self._confidence_enabled:
             logger.info(f"Adaptive ensemble: enabled")
 
