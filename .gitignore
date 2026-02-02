@@ -3,6 +3,9 @@
 aur-sniptext-aur/
 *.tar.gz
 
+# AUR package repository (separate repo)
+aur-sniptext-aur/
+
 # Python
 __pycache__/
 *.py[cod]
