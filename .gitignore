@@ -1,6 +1,5 @@
 # Development notes (private)
 .dev/
-aur-sniptext-aur/
 *.tar.gz
 
 # AUR package repository (separate repo)
