@@ -1,0 +1,102 @@
+"""Tests for ImageAnalyzer."""
+
+import numpy as np
+import pytest
+from PIL import Image
+
+from sniptext.analyzer import ImageAnalyzer
+
+
+@pytest.fixture
+def analyzer():
+    return ImageAnalyzer()
+
+
+def make_image(width, height, value=150, mode="RGB"):
+    """Create a solid-color test image."""
+    if mode == "L":
+        return Image.fromarray(np.full((height, width), value, dtype=np.uint8), mode="L")
+    return Image.fromarray(np.full((height, width, 3), value, dtype=np.uint8))
+
+
+class TestExtractFeatures:
+    def test_returns_five_features(self, analyzer):
+        img = make_image(300, 100)
+        features = analyzer.extract_features(img)
+        assert len(features) == 5
+
+    def test_all_features_in_range(self, analyzer):
+        img = make_image(300, 100)
+        features = analyzer.extract_features(img)
+        for f in features:
+            assert 0.0 <= f <= 1.0
+
+    def test_bright_image_high_brightness(self, analyzer):
+        img = make_image(300, 100, value=240)
+        features = analyzer.extract_features(img)
+        assert features[0] > 0.8  # brightness
+
+    def test_dark_image_low_brightness(self, analyzer):
+        img = make_image(300, 100, value=20)
+        features = analyzer.extract_features(img)
+        assert features[0] < 0.2
+
+    def test_grayscale_image(self, analyzer):
+        img = make_image(300, 100, mode="L")
+        features = analyzer.extract_features(img)
+        assert len(features) == 5
+
+    def test_rgba_image(self, analyzer):
+        arr = np.full((100, 300, 4), 150, dtype=np.uint8)
+        img = Image.fromarray(arr, mode="RGBA")
+        features = analyzer.extract_features(img)
+        assert len(features) == 5
+
+
+class TestSuggestPsmMode:
+    def test_wide_short_image_returns_psm7(self, analyzer):
+        # aspect ratio > 4 and height < 100
+        img = make_image(500, 50)
+        assert analyzer.suggest_psm_mode(img) == 7
+
+    def test_small_image_returns_psm11(self, analyzer):
+        img = make_image(200, 80)
+        assert analyzer.suggest_psm_mode(img) == 11
+
+    def test_tall_narrow_returns_psm6(self, analyzer):
+        # aspect ratio < 0.5, but width >= 300 to skip the small-image branch
+        img = make_image(300, 800)
+        assert analyzer.suggest_psm_mode(img) == 6
+
+    def test_normal_block_returns_psm6(self, analyzer):
+        img = make_image(600, 400)
+        assert analyzer.suggest_psm_mode(img) == 6
+
+
+class TestShouldInvert:
+    def test_dark_image_should_invert(self, analyzer):
+        img = make_image(300, 100, value=30)
+        assert analyzer.should_invert(img) is True
+
+    def test_bright_image_no_invert(self, analyzer):
+        img = make_image(300, 100, value=200)
+        assert analyzer.should_invert(img) is False
+
+
+class TestEnhanceForOcr:
+    def test_returns_pil_image(self, analyzer):
+        img = make_image(400, 200)
+        result = analyzer.enhance_for_ocr(img)
+        assert isinstance(result, Image.Image)
+
+    def test_small_image_gets_upscaled(self, analyzer):
+        img = make_image(100, 50)
+        result = analyzer.enhance_for_ocr(img)
+        assert result.width > img.width
+        assert result.height > img.height
+
+    def test_normal_image_stays_same_size(self, analyzer):
+        img = make_image(600, 400)
+        result = analyzer.enhance_for_ocr(img)
+        # Size should not change for already-large images
+        assert result.size == img.size
