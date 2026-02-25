@@ -66,3 +66,32 @@ packages = ["sniptext"]
 
 [tool.setuptools.package-data]
 sniptext = ["py.typed"]
+
+# ── Ruff (линтер) ─────────────────────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+exclude = ["__pycache__", "*.egg-info", ".github"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]   # ошибки, warnings, импорты
+ignore = ["E501"]                # длинные строки — black сам разберётся
+
+# ── Black (форматтер) ─────────────────────────────────────────
+[tool.black]
+line-length = 100
+target-version = ["py39", "py310", "py311", "py312"]
+exclude = '''
+/(
+    __pycache__
+  | \.git
+  | \.eggs
+  | .*\.egg-info
+)/
+'''
+
+# ── Pytest ────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+

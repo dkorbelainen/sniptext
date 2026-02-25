@@ -1,5 +1,7 @@
 # SnipText
 
+[![CI](https://github.com/dkorbelainen/sniptext/actions/workflows/ci.yml/badge.svg)](https://github.com/dkorbelainen/sniptext/actions/workflows/ci.yml)
+
 Screen text extractor with OCR and spell correction for Arch Linux.
 
 **Simple workflow:** Hotkey → Select area → Text in clipboard
