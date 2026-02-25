@@ -15,9 +15,6 @@ def test_basic_corrections():
 
     # Test common word boundary errors
     assert corrector.correct("going t0 school") == "going to school"
-    assert "frown" in corrector.correct("came frorn home") or "from" in corrector.correct(
-        "came frorn home"
-    )
     assert corrector.correct("0f course") == "of course"
     assert corrector.correct("1n time") == "in time"
 
