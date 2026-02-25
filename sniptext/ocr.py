@@ -1,12 +1,13 @@
 """OCR engine for SnipText with multiple backends."""
 
-import numpy as np
-from PIL import Image
-from loguru import logger
 from abc import ABC, abstractmethod
 
-from .config import Config
+import numpy as np
+from loguru import logger
+from PIL import Image
+
 from .analyzer import ImageAnalyzer
+from .config import Config
 
 
 class OCRBackend(ABC):
@@ -36,6 +37,7 @@ class TesseractBackend(OCRBackend):
         """Check if Tesseract is available."""
         try:
             import pytesseract
+
             self._tesseract = pytesseract
             pytesseract.get_tesseract_version()
             return True
@@ -56,16 +58,12 @@ class TesseractBackend(OCRBackend):
         psm_mode = self._analyzer.suggest_psm_mode(image)
 
         lang_code = self._get_lang_code()
-        custom_config = f'--oem 1 --psm {psm_mode}'
+        custom_config = f"--oem 1 --psm {psm_mode}"
 
         logger.info(f"Tesseract: lang={lang_code}, PSM={psm_mode}")
         logger.debug(f"Using Tesseract with PSM {psm_mode}")
 
-        text = self._tesseract.image_to_string(
-            enhanced_image,
-            lang=lang_code,
-            config=custom_config
-        )
+        text = self._tesseract.image_to_string(enhanced_image, lang=lang_code, config=custom_config)
 
         return text.strip()
 
@@ -89,7 +87,8 @@ class EasyOCRBackend(OCRBackend):
             return self._available
 
         try:
-            import easyocr
+            import easyocr  # noqa: F401
+
             self._available = True
             return True
         except ImportError:
@@ -113,11 +112,7 @@ class EasyOCRBackend(OCRBackend):
             logger.info(f"Initializing EasyOCR with languages: {langs}")
             logger.info("First run will download models (~100-500MB)...")
 
-            self._reader = easyocr.Reader(
-                langs,
-                gpu=self.config.use_gpu,
-                verbose=False
-            )
+            self._reader = easyocr.Reader(langs, gpu=self.config.use_gpu, verbose=False)
 
             self._initialized = True
             logger.info("EasyOCR initialized")
@@ -135,11 +130,7 @@ class EasyOCRBackend(OCRBackend):
 
         img_array = np.array(image)
 
-        results = self._reader.readtext(
-            img_array,
-            detail=1,
-            paragraph=False
-        )
+        results = self._reader.readtext(img_array, detail=1, paragraph=False)
 
         lines = []
         for detection in results:
@@ -158,19 +149,19 @@ class EasyOCRBackend(OCRBackend):
         """Get EasyOCR language codes."""
         # Convert Tesseract codes to EasyOCR codes
         lang_map = {
-            'eng': 'en',
-            'rus': 'ru',
-            'jpn': 'ja',
-            'kor': 'ko',
-            'chi_sim': 'ch_sim',
-            'chi_tra': 'ch_tra',
-            'fra': 'fr',
-            'deu': 'de',
-            'spa': 'es',
+            "eng": "en",
+            "rus": "ru",
+            "jpn": "ja",
+            "kor": "ko",
+            "chi_sim": "ch_sim",
+            "chi_tra": "ch_tra",
+            "fra": "fr",
+            "deu": "de",
+            "spa": "es",
         }
 
         # Split by + for multiple languages
-        tess_langs = self.config.ocr_language.split('+')
+        tess_langs = self.config.ocr_language.split("+")
         easy_langs = []
 
         for tl in tess_langs:
@@ -181,7 +172,7 @@ class EasyOCRBackend(OCRBackend):
                 # Try to use as-is (might work)
                 easy_langs.append(tl)
 
-        return easy_langs if easy_langs else ['en']
+        return easy_langs if easy_langs else ["en"]
 
 
 class OCREngine:
@@ -203,14 +194,16 @@ class OCREngine:
 
         # Lazy initialization of confidence model (only created when first used)
         self.confidence_model = None
-        self._confidence_enabled = self.config.adaptive_ensemble and self.config.ocr_engine == "ensemble"
+        self._confidence_enabled = (
+            self.config.adaptive_ensemble and self.config.ocr_engine == "ensemble"
+        )
 
         backend_name = type(self.backend).__name__.replace("Backend", "").lower()
         logger.info(f"OCR Engine initialized with backend: {backend_name}")
         logger.info(f"OCR Language: {config.ocr_language}")
         logger.info(f"Text Correction: {config.enable_text_correction}")
         if self._confidence_enabled:
-            logger.info(f"Adaptive ensemble: enabled")
+            logger.info("Adaptive ensemble: enabled")
 
     def _initialize_backend(self) -> OCRBackend:
         """Initialize the appropriate OCR backend."""
@@ -244,6 +237,7 @@ class OCREngine:
         """Lazy initialization of confidence model (only when first needed)."""
         if self.confidence_model is None and self._confidence_enabled:
             from .confidence import ConfidenceModel
+
             self.confidence_model = ConfidenceModel()
         return self.confidence_model
 
@@ -266,7 +260,7 @@ class OCREngine:
                 # Predict optimal strategy
                 strategy, confidence = confidence_model.predict_strategy(pil_image)
 
-                if strategy == 'fast':
+                if strategy == "fast":
                     # Use single fast backend
                     logger.debug(f"Using fast mode (confidence: {confidence:.2f})")
                     text = self.backend.recognize(pil_image)
@@ -293,11 +287,12 @@ class OCREngine:
 
                 if self.config.enable_text_correction:
                     from .ensemble import post_process_text
+
                     text = post_process_text(
                         text,
                         language=self.config.ocr_language,
                         enable_correction=True,
-                        aggressive=self.config.aggressive_correction
+                        aggressive=self.config.aggressive_correction,
                     )
             else:
                 logger.debug("No text recognized")
@@ -348,7 +343,6 @@ class OCREngine:
 
         return combined
 
-
     def _prepare_image(self, image: np.ndarray) -> Image.Image:
         """
         Convert numpy array to PIL Image.
@@ -363,12 +357,12 @@ class OCREngine:
             return image
 
         if len(image.shape) == 2:
-            return Image.fromarray(image, mode='L')
+            return Image.fromarray(image, mode="L")
         elif len(image.shape) == 3:
             if image.shape[2] == 3:
-                return Image.fromarray(image, mode='RGB')
+                return Image.fromarray(image, mode="RGB")
             elif image.shape[2] == 4:
-                return Image.fromarray(image, mode='RGBA')
+                return Image.fromarray(image, mode="RGBA")
 
         logger.warning(f"Unexpected image shape: {image.shape}")
         return Image.fromarray(image)

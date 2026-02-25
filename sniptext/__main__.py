@@ -3,16 +3,17 @@ SnipText - Lightweight OCR Screen Capture Utility
 Main entry point for the application.
 """
 
-import sys
 import argparse
+import sys
 from pathlib import Path
+
 from loguru import logger
 
 from sniptext.capture import ScreenCapture
-from sniptext.ocr import OCREngine
 from sniptext.clipboard import ClipboardManager
 from sniptext.config import Config
 from sniptext.hotkey import HotkeyManager
+from sniptext.ocr import OCREngine
 
 
 def setup_logging(verbose: bool = False):
@@ -28,17 +29,17 @@ def setup_logging(verbose: bool = False):
 
 def main():
     """Main application entry point."""
-    parser = argparse.ArgumentParser(
-        description="SnipText - OCR Screen Capture Utility"
-    )
+    parser = argparse.ArgumentParser(description="SnipText - OCR Screen Capture Utility")
     parser.add_argument(
-        "-c", "--config",
+        "-c",
+        "--config",
         type=Path,
         default=Path.home() / ".config" / "sniptext" / "config.yaml",
         help="Path to configuration file",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="store_true",
         help="Enable verbose logging",
     )
@@ -119,7 +120,7 @@ def main():
                 clipboard_manager=clipboard_manager,
             )
 
-            print(f"\nSnipText is now running!")
+            print("\nSnipText is now running!")
             print(f"  Hotkey: {config.hotkey}")
             print(f"  OCR: {config.ocr_engine}")
             print(f"  Config: {args.config}")

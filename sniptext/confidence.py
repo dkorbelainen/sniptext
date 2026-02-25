@@ -1,8 +1,9 @@
 """Confidence scoring model for adaptive OCR selection."""
 
-import numpy as np
-from pathlib import Path
 import pickle
+from pathlib import Path
+
+import numpy as np
 from loguru import logger
 from PIL import Image
 
@@ -53,44 +54,54 @@ class ConfidenceModel:
         # Easy cases (0 = use fast Tesseract only) - 60% of data
         for _ in range(60):
             # High contrast, good brightness, sharp images
-            X_train.append([
-                np.random.uniform(0.5, 0.85),  # good brightness
-                np.random.uniform(0.4, 0.9),   # high contrast
-                np.random.uniform(0.5, 1.0),   # sharp
-                np.random.randint(0, 2),       # color doesn't matter
-                np.random.uniform(0.2, 0.9)    # normal ratio
-            ])
+            X_train.append(
+                [
+                    np.random.uniform(0.5, 0.85),  # good brightness
+                    np.random.uniform(0.4, 0.9),  # high contrast
+                    np.random.uniform(0.5, 1.0),  # sharp
+                    np.random.randint(0, 2),  # color doesn't matter
+                    np.random.uniform(0.2, 0.9),  # normal ratio
+                ]
+            )
             y_train.append(0)  # Fast mode
 
         # Hard cases (1 = use ensemble) - 40% of data
         for _ in range(40):
             # Generate various difficult scenarios
-            scenario = np.random.choice(['low_contrast', 'extreme_brightness', 'blurry'])
+            scenario = np.random.choice(["low_contrast", "extreme_brightness", "blurry"])
 
-            if scenario == 'low_contrast':
-                X_train.append([
-                    np.random.uniform(0.3, 0.7),   # any brightness
-                    np.random.uniform(0.05, 0.25), # low contrast (key indicator)
-                    np.random.uniform(0.2, 0.6),   # moderate sharpness
-                    np.random.randint(0, 2),
-                    np.random.uniform(0.2, 0.9)
-                ])
-            elif scenario == 'extreme_brightness':
-                X_train.append([
-                    np.random.choice([np.random.uniform(0.05, 0.25), np.random.uniform(0.85, 1.0)]),  # very dark or bright
-                    np.random.uniform(0.15, 0.4),  # lower contrast
-                    np.random.uniform(0.3, 0.7),
-                    np.random.randint(0, 2),
-                    np.random.uniform(0.2, 0.9)
-                ])
+            if scenario == "low_contrast":
+                X_train.append(
+                    [
+                        np.random.uniform(0.3, 0.7),  # any brightness
+                        np.random.uniform(0.05, 0.25),  # low contrast (key indicator)
+                        np.random.uniform(0.2, 0.6),  # moderate sharpness
+                        np.random.randint(0, 2),
+                        np.random.uniform(0.2, 0.9),
+                    ]
+                )
+            elif scenario == "extreme_brightness":
+                X_train.append(
+                    [
+                        np.random.choice(
+                            [np.random.uniform(0.05, 0.25), np.random.uniform(0.85, 1.0)]
+                        ),  # very dark or bright
+                        np.random.uniform(0.15, 0.4),  # lower contrast
+                        np.random.uniform(0.3, 0.7),
+                        np.random.randint(0, 2),
+                        np.random.uniform(0.2, 0.9),
+                    ]
+                )
             else:  # blurry
-                X_train.append([
-                    np.random.uniform(0.3, 0.8),
-                    np.random.uniform(0.2, 0.5),
-                    np.random.uniform(0.05, 0.3), # low sharpness (key indicator)
-                    np.random.randint(0, 2),
-                    np.random.uniform(0.2, 0.9)
-                ])
+                X_train.append(
+                    [
+                        np.random.uniform(0.3, 0.8),
+                        np.random.uniform(0.2, 0.5),
+                        np.random.uniform(0.05, 0.3),  # low sharpness (key indicator)
+                        np.random.randint(0, 2),
+                        np.random.uniform(0.2, 0.9),
+                    ]
+                )
 
             y_train.append(1)  # Ensemble mode
 
@@ -102,16 +113,13 @@ class ConfidenceModel:
             from sklearn.ensemble import GradientBoostingClassifier
 
             self.model = GradientBoostingClassifier(
-                n_estimators=50,
-                max_depth=3,
-                learning_rate=0.1,
-                random_state=42
+                n_estimators=50, max_depth=3, learning_rate=0.1, random_state=42
             )
             self.model.fit(X_train, y_train)
             self.trained = True
 
             # Log feature importances
-            feature_names = ['brightness', 'contrast', 'sharpness', 'has_color', 'size_ratio']
+            feature_names = ["brightness", "contrast", "sharpness", "has_color", "size_ratio"]
             importances = self.model.feature_importances_
             logger.debug(f"Feature importances: {dict(zip(feature_names, importances))}")
 
@@ -138,23 +146,21 @@ class ConfidenceModel:
         # Extract features
         features = self.analyzer.extract_features(image)
 
-        # Use combined heuristic approach
-        brightness = features[0]
         contrast = features[1]
         sharpness = features[2]
 
         # Calculate quality score
         # High contrast and good sharpness = easy case
-        quality_score = (contrast * 0.6 + sharpness * 0.4)
+        quality_score = contrast * 0.6 + sharpness * 0.4
 
         # Decision rules
         if contrast > 0.5 and sharpness > 0.4:
             # Good quality - use fast mode
-            strategy = 'fast'
+            strategy = "fast"
             confidence = min(quality_score, 0.95)
         elif contrast < 0.2 or sharpness < 0.2:
             # Poor quality - definitely use ensemble
-            strategy = 'ensemble'
+            strategy = "ensemble"
             confidence = 0.9
         else:
             # Use trained model for borderline cases
@@ -165,10 +171,12 @@ class ConfidenceModel:
             prediction = self.model.predict(features_reshaped)[0]
             probabilities = self.model.predict_proba(features_reshaped)[0]
 
-            strategy = 'fast' if prediction == 0 else 'ensemble'
+            strategy = "fast" if prediction == 0 else "ensemble"
             confidence = probabilities[prediction]
 
-        logger.debug(f"Predicted strategy: {strategy} (confidence: {confidence:.2f}, quality: {quality_score:.2f})")
+        logger.debug(
+            f"Predicted strategy: {strategy} (confidence: {confidence:.2f}, quality: {quality_score:.2f})"
+        )
 
         return strategy, confidence
 
@@ -183,9 +191,9 @@ class ConfidenceModel:
         quality_score = (contrast + sharpness) / 2
 
         if quality_score > 0.5:
-            return 'fast', quality_score
+            return "fast", quality_score
         else:
-            return 'ensemble', 1.0 - quality_score
+            return "ensemble", 1.0 - quality_score
 
     def record_result(self, features: np.ndarray, strategy: str, success: bool):
         """
@@ -204,9 +212,9 @@ class ConfidenceModel:
         """Load trained model from disk."""
         if self.model_path.exists():
             try:
-                with open(self.model_path, 'rb') as f:
+                with open(self.model_path, "rb") as f:
                     data = pickle.load(f)
-                    self.model = data['model']
+                    self.model = data["model"]
                     self.trained = True
                 logger.info(f"Loaded confidence model from {self.model_path}")
             except Exception as e:
@@ -221,8 +229,8 @@ class ConfidenceModel:
 
         try:
             self.model_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.model_path, 'wb') as f:
-                pickle.dump({'model': self.model}, f)
+            with open(self.model_path, "wb") as f:
+                pickle.dump({"model": self.model}, f)
             logger.info(f"Saved confidence model to {self.model_path}")
         except Exception as e:
             logger.error(f"Failed to save model: {e}")

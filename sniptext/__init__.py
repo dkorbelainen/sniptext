@@ -5,9 +5,9 @@ __author__ = "dkorbelainen"
 __license__ = "MIT"
 
 from .capture import ScreenCapture
-from .ocr import OCREngine
 from .clipboard import ClipboardManager
 from .config import Config
+from .ocr import OCREngine
 
 __all__ = [
     "ScreenCapture",

@@ -1,8 +1,8 @@
 """Image analyzer for OCR optimization."""
 
 import numpy as np
-from PIL import Image, ImageStat
 from loguru import logger
+from PIL import Image, ImageStat
 
 
 class ImageAnalyzer:
@@ -12,7 +12,6 @@ class ImageAnalyzer:
         """Initialize analyzer."""
         self.features = []
 
-
     def extract_features(self, image: Image.Image) -> np.ndarray:
         """
         Extract features from image for analysis.
@@ -21,8 +20,8 @@ class ImageAnalyzer:
             Feature vector: [brightness, contrast, sharpness, has_color, size_ratio]
         """
         # Convert to RGB if needed
-        if image.mode != 'RGB':
-            image = image.convert('RGB')
+        if image.mode != "RGB":
+            image = image.convert("RGB")
 
         # Calculate statistics
         stat = ImageStat.Stat(image)
@@ -34,9 +33,11 @@ class ImageAnalyzer:
         contrast = np.mean(stat.stddev)
 
         # Estimate sharpness using edge detection
-        gray = image.convert('L')
+        gray = image.convert("L")
         img_array = np.array(gray)
-        laplacian = np.abs(np.diff(img_array, axis=0)).mean() + np.abs(np.diff(img_array, axis=1)).mean()
+        laplacian = (
+            np.abs(np.diff(img_array, axis=0)).mean() + np.abs(np.diff(img_array, axis=1)).mean()
+        )
         sharpness = laplacian
 
         # Color presence
@@ -55,16 +56,20 @@ class ImageAnalyzer:
         # Sharpness: typical range 5-50 for text images
         normalized_sharpness = min(sharpness / 30.0, 1.0)
 
-        features = np.array([
-            brightness / 255.0,      # normalize to 0-1
-            normalized_contrast,     # normalize to 0-1
-            normalized_sharpness,    # normalize to 0-1
-            has_color,               # binary
-            min(size_ratio, 5.0) / 5.0  # cap at 5:1 ratio
-        ])
+        features = np.array(
+            [
+                brightness / 255.0,  # normalize to 0-1
+                normalized_contrast,  # normalize to 0-1
+                normalized_sharpness,  # normalize to 0-1
+                has_color,  # binary
+                min(size_ratio, 5.0) / 5.0,  # cap at 5:1 ratio
+            ]
+        )
 
-        logger.debug(f"Image features: brightness={brightness:.1f}, contrast={contrast:.1f}, "
-                    f"sharpness={sharpness:.1f}, color={has_color}, ratio={size_ratio:.2f}")
+        logger.debug(
+            f"Image features: brightness={brightness:.1f}, contrast={contrast:.1f}, "
+            f"sharpness={sharpness:.1f}, color={has_color}, ratio={size_ratio:.2f}"
+        )
 
         return features
 
@@ -82,7 +87,6 @@ class ImageAnalyzer:
         Returns:
             PSM mode number
         """
-        features = self.extract_features(image)
         width, height = image.size
         aspect_ratio = width / height if height > 0 else 1.0
 
@@ -149,7 +153,8 @@ class ImageAnalyzer:
         # Invert if dark background
         if self.should_invert(image):
             from PIL import ImageOps
-            image = ImageOps.invert(image.convert('RGB'))
+
+            image = ImageOps.invert(image.convert("RGB"))
             logger.debug("Applied color inversion")
 
         # Enhance contrast if low

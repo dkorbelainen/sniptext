@@ -1,11 +1,12 @@
 """Ensemble OCR - combines multiple engines for better accuracy."""
 
-import numpy as np
 from difflib import SequenceMatcher
-from collections import Counter
+
+import numpy as np
 from loguru import logger
 
 from .corrector import OCRCorrector
+
 
 class EnsembleOCR:
     """Combine results from multiple OCR engines using voting."""
@@ -39,7 +40,7 @@ class EnsembleOCR:
         logger.info(f"Combining {len(results)} OCR results")
 
         # Split into lines, keep empty lines for structure
-        all_lines = [r.split('\n') for r in results]
+        all_lines = [r.split("\n") for r in results]
         max_lines = max(len(lines) for lines in all_lines)
 
         combined_lines = []
@@ -59,7 +60,7 @@ class EnsembleOCR:
             if best_line.strip():  # Only add non-empty lines
                 combined_lines.append(best_line)
 
-        return '\n'.join(combined_lines)
+        return "\n".join(combined_lines)
 
     def _pick_best_line(self, variants: list[str]) -> str:
         """Pick best line variant using multiple heuristics."""
@@ -85,17 +86,17 @@ class EnsembleOCR:
             score += len(v) * 0.1
 
             # Punctuation score (proper sentences end with punctuation)
-            if v.endswith(('.', '!', '?', ':', ',')):
+            if v.endswith((".", "!", "?", ":", ",")):
                 score += 10
 
             # Cyrillic letter score (prefer proper Russian text)
-            cyrillic_count = sum(1 for c in v if 'а' <= c <= 'я' or 'А' <= c <= 'Я')
+            cyrillic_count = sum(1 for c in v if "а" <= c <= "я" or "А" <= c <= "Я")
             score += cyrillic_count * 0.2
 
             # Penalize garbage characters at start
             if v and v[0].isdigit():
                 score -= 5
-            if len(v) > 1 and v[1] == ' ' and v[0].isupper() and len(v.split()[0]) == 1:
+            if len(v) > 1 and v[1] == " " and v[0].isupper() and len(v.split()[0]) == 1:
                 score -= 5  # Single capital letter at start
 
             scores.append((score, v))
@@ -132,7 +133,9 @@ class EnsembleOCR:
         return avg_similarity
 
 
-def post_process_text(text: str, language: str = "eng", enable_correction: bool = True, aggressive: bool = False) -> str:
+def post_process_text(
+    text: str, language: str = "eng", enable_correction: bool = True, aggressive: bool = False
+) -> str:
     """
     Post-process OCR text with optional correction.
 
@@ -153,13 +156,13 @@ def post_process_text(text: str, language: str = "eng", enable_correction: bool 
         text = corrector.correct(text, aggressive=aggressive)
     else:
         import re
-        text = re.sub(r' {2,}', ' ', text)
-        text = re.sub(r'\s+([.,!?;:])', r'\1', text)
-        text = re.sub(r'([.,!?:;])([а-яА-ЯёЁa-zA-Z])', r'\1 \2', text)
 
-        lines = [l.strip() for l in text.split('\n')]
-        lines = [l for l in lines if l]
-        text = '\n'.join(lines)
+        text = re.sub(r" {2,}", " ", text)
+        text = re.sub(r"\s+([.,!?;:])", r"\1", text)
+        text = re.sub(r"([.,!?:;])([а-яА-ЯёЁa-zA-Z])", r"\1 \2", text)
 
+        lines = [line.strip() for line in text.split("\n")]
+        lines = [line for line in lines if line]
+        text = "\n".join(lines)
 
     return text

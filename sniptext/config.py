@@ -1,9 +1,10 @@
 """Configuration management for SnipText."""
 
-import yaml
-from pathlib import Path
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
+
+import yaml
 
 
 @dataclass
@@ -39,7 +40,6 @@ class Config:
         if self.ocr_model_path is None:
             self.ocr_model_path = Path.home() / ".local" / "share" / "sniptext" / "models"
 
-
     @classmethod
     def load(cls, config_path: Path) -> "Config":
         """Load configuration from YAML file."""
@@ -49,22 +49,26 @@ class Config:
             config.save(config_path)
             return config
 
-        with open(config_path, 'r') as f:
+        with open(config_path, "r") as f:
             data = yaml.safe_load(f) or {}
 
         # Remove all old/unused parameters
         deprecated = [
-            'preprocessing_enabled', 'preprocessing_mode',
-            'save_history', 'history_db_path', 'max_history_items',
-            'show_confidence_overlay', 'context_aware_detection', 'num_threads'
+            "preprocessing_enabled",
+            "preprocessing_mode",
+            "save_history",
+            "history_db_path",
+            "max_history_items",
+            "show_confidence_overlay",
+            "context_aware_detection",
+            "num_threads",
         ]
         for param in deprecated:
             data.pop(param, None)
 
         # Convert string paths to Path objects
-        if 'ocr_model_path' in data and data['ocr_model_path']:
-            data['ocr_model_path'] = Path(data['ocr_model_path']).expanduser()
-
+        if "ocr_model_path" in data and data["ocr_model_path"]:
+            data["ocr_model_path"] = Path(data["ocr_model_path"]).expanduser()
 
         return cls(**data)
 
@@ -80,5 +84,5 @@ class Config:
             else:
                 data[key] = value
 
-        with open(config_path, 'w') as f:
+        with open(config_path, "w") as f:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)

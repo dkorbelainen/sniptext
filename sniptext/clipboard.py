@@ -1,8 +1,9 @@
 """Clipboard management for SnipText."""
 
-import subprocess
 import shutil
+import subprocess
 from typing import Optional
+
 from loguru import logger
 
 
@@ -55,11 +56,12 @@ class ClipboardManager:
                     stderr=subprocess.PIPE,
                 )
                 # Write and close stdin - this makes wl-copy capture the content
-                process.stdin.write(text.encode('utf-8'))
+                process.stdin.write(text.encode("utf-8"))
                 process.stdin.close()
 
                 # Give it a moment to register with compositor
                 import time
+
                 time.sleep(0.05)
 
                 # Check if it started successfully (it should still be running)
@@ -68,7 +70,9 @@ class ClipboardManager:
                     logger.error(f"Failed to start wl-copy: {stderr}")
                     return False
 
-                logger.debug(f"Copied {len(text)} characters to clipboard (wl-copy pid: {process.pid})")
+                logger.debug(
+                    f"Copied {len(text)} characters to clipboard (wl-copy pid: {process.pid})"
+                )
                 return True
             else:
                 # X11 tools work synchronously
@@ -78,7 +82,7 @@ class ClipboardManager:
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                 )
-                stdout, stderr = process.communicate(input=text.encode('utf-8'), timeout=2)
+                stdout, stderr = process.communicate(input=text.encode("utf-8"), timeout=2)
 
                 if process.returncode != 0:
                     logger.error(f"Failed to copy to clipboard: {stderr.decode()}")

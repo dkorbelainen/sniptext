@@ -19,9 +19,10 @@ def test_config_defaults():
 
 def test_analyzer_features():
     """Test image analyzer extracts features."""
-    from sniptext.analyzer import ImageAnalyzer
-    from PIL import Image
     import numpy as np
+    from PIL import Image
+
+    from sniptext.analyzer import ImageAnalyzer
 
     analyzer = ImageAnalyzer()
 
@@ -43,5 +44,3 @@ def test_imports():
     assert Config is not None
     assert OCREngine is not None
     assert ImageAnalyzer is not None
-
-

@@ -1,13 +1,14 @@
 """Hotkey management for SnipText."""
 
 import time
+
 from loguru import logger
 from pynput import keyboard
 
-from .config import Config
 from .capture import ScreenCapture
-from .ocr import OCREngine
 from .clipboard import ClipboardManager
+from .config import Config
+from .ocr import OCREngine
 
 
 class HotkeyManager:
@@ -68,8 +69,9 @@ class HotkeyManager:
         """Start listening for hotkeys."""
         # Check for Wayland
         import os
-        session_type = os.environ.get('XDG_SESSION_TYPE', '').lower()
-        if session_type == 'wayland':
+
+        session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()
+        if session_type == "wayland":
             logger.warning("=" * 60)
             logger.warning("WAYLAND DETECTED - Hotkeys may not work!")
             logger.warning("=" * 60)
@@ -93,7 +95,7 @@ class HotkeyManager:
             """Handle key press."""
             try:
                 # Add to current keys
-                if hasattr(key, 'char') and key.char:
+                if hasattr(key, "char") and key.char:
                     current_keys.add(key.char.lower())
                 else:
                     current_keys.add(key)
@@ -110,7 +112,7 @@ class HotkeyManager:
             """Handle key release."""
             try:
                 # Remove from current keys
-                if hasattr(key, 'char') and key.char:
+                if hasattr(key, "char") and key.char:
                     current_keys.discard(key.char.lower())
                 else:
                     current_keys.discard(key)
@@ -149,10 +151,6 @@ class HotkeyManager:
         Returns:
             True if hotkey is pressed
         """
-        # Check if all modifiers are pressed
-        modifiers_pressed = any(mod in current_keys for mod in self.modifiers) if self.modifiers else True
-
-        # For modifiers, we need at least one from each group
         if self.modifiers:
             ctrl_mods = {keyboard.Key.ctrl_l, keyboard.Key.ctrl_r}
             shift_mods = {keyboard.Key.shift_l, keyboard.Key.shift_r}
@@ -167,9 +165,9 @@ class HotkeyManager:
             has_alt = bool(current_keys & alt_mods)
 
             modifiers_ok = (
-                (not needs_ctrl or has_ctrl) and
-                (not needs_shift or has_shift) and
-                (not needs_alt or has_alt)
+                (not needs_ctrl or has_ctrl)
+                and (not needs_shift or has_shift)
+                and (not needs_alt or has_alt)
             )
         else:
             modifiers_ok = True
@@ -217,7 +215,6 @@ class HotkeyManager:
                     f"(capture: {capture_time:.3f}s, OCR: {ocr_time:.3f}s)"
                 )
 
-
                 # Show notification if enabled
                 if self.config.notification_enabled:
                     self._show_notification(f"Copied {len(text)} characters")
@@ -237,6 +234,7 @@ class HotkeyManager:
         """
         try:
             import subprocess
+
             result = subprocess.run(
                 ["notify-send", "SnipText", message],
                 timeout=2,

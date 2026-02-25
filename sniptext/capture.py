@@ -1,13 +1,14 @@
 """Screen capture functionality for SnipText."""
 
-import subprocess
 import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Optional
-import tempfile
+
 import numpy as np
-from PIL import Image
 from loguru import logger
+from PIL import Image
 
 from .config import Config
 
