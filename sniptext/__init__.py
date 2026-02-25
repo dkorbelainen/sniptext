@@ -1,6 +1,6 @@
 """SnipText - Lightweight OCR Screen Capture Utility."""
 
-__version__ = "0.1.0"
+__version__ = "0.1.3"
 __author__ = "dkorbelainen"
 __license__ = "MIT"
 
