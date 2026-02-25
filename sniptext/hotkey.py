@@ -3,7 +3,6 @@
 import time
 
 from loguru import logger
-from pynput import keyboard
 
 from .capture import ScreenCapture
 from .clipboard import ClipboardManager
@@ -40,7 +39,8 @@ class HotkeyManager:
 
     def _parse_hotkey(self) -> None:
         """Parse hotkey string into modifier keys and key."""
-        # Parse format like "<ctrl>+<shift>+s"
+        from pynput import keyboard
+
         parts = self.config.hotkey.lower().replace(" ", "").split("+")
 
         self.modifiers = set()
@@ -121,7 +121,8 @@ class HotkeyManager:
                 logger.error(f"Error in key release handler: {e}")
 
         try:
-            # Start keyboard listener
+            from pynput import keyboard
+
             with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
                 self.listener = listener
                 listener.join()
@@ -151,6 +152,8 @@ class HotkeyManager:
         Returns:
             True if hotkey is pressed
         """
+        from pynput import keyboard
+
         if self.modifiers:
             ctrl_mods = {keyboard.Key.ctrl_l, keyboard.Key.ctrl_r}
             shift_mods = {keyboard.Key.shift_l, keyboard.Key.shift_r}
