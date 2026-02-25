@@ -1,0 +1,76 @@
+# Continuous Delivery (CD) workflow
+# Запускается только при создании нового тега вида v*.*.* (например, v0.1.4).
+# Цель: автоматически собрать Python-пакет и опубликовать его на PyPI.
+#
+# Как использовать:
+#   git tag v0.1.4
+#   git push origin v0.1.4
+# После этого GitHub Actions соберёт дистрибутив и загрузит его на PyPI.
+#
+# Для работы публикации нужно добавить секрет PYPI_API_TOKEN в настройках репозитория:
+#   Settings → Secrets and variables → Actions → New repository secret
+
+name: CD
+
+on:
+  push:
+    tags:
+      - "v*.*.*"   # срабатывает на теги типа v0.1.4, v1.0.0 и т.д.
+
+jobs:
+  build:
+    # Шаг 1 — сборка дистрибутива.
+    # Создаём wheel (.whl) и sdist (.tar.gz) для загрузки на PyPI.
+    name: Build distribution
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build tool
+        # build — стандартный инструмент PEP 517 для сборки Python-пакетов
+        run: pip install build
+
+      - name: Build wheel and sdist
+        # python -m build создаёт файлы в папке dist/
+        run: python -m build
+
+      - name: Upload dist as artifact
+        # Сохраняем собранные файлы как артефакт, чтобы следующий job мог их скачать
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    # Шаг 2 — публикация на PyPI.
+    # Запускается только после успешной сборки (needs: build).
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs: build
+
+    # Ограничиваем права токена до минимально необходимых
+    permissions:
+      id-token: write   # нужно для trusted publishing (OIDC)
+
+    steps:
+      - name: Download dist artifact
+        # Скачиваем артефакт, собранный в job'е build
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        # pypa/gh-action-pypi-publish поддерживает как API-токен (PYPI_API_TOKEN),
+        # так и Trusted Publishing (без токена, через OIDC — рекомендуемый способ).
+        # Подробнее: https://docs.pypi.org/trusted-publishers/
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}

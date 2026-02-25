@@ -1,0 +1,74 @@
+# Continuous Integration (CI) workflow
+# Запускается при каждом push и pull request в ветки main и develop.
+# Цель: убедиться, что код соответствует стандартам качества и все тесты проходят.
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  lint:
+    # Шаг 1 — проверка стиля кода.
+    # ruff — быстрый линтер, black — форматтер.
+    # Если код не отформатирован или содержит ошибки стиля — CI упадёт.
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        # Скачиваем исходный код репозитория в runner
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dev dependencies
+        # Устанавливаем только dev-зависимости (ruff + black), без тяжёлых OCR-библиотек
+        run: pip install ".[dev]"
+
+      - name: Run ruff (linter)
+        # ruff проверяет код на ошибки, неиспользуемые импорты, нарушения PEP8 и т.д.
+        run: ruff check .
+
+      - name: Run black (format check)
+        # black --check не изменяет файлы, а только сообщает, нужно ли форматирование
+        run: black --check .
+
+  test:
+    # Шаг 2 — запуск тестов на нескольких версиях Python.
+    # Matrix-стратегия позволяет проверить совместимость сразу с несколькими версиями.
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false   # продолжаем проверять остальные версии, даже если одна упала
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install system dependency (tesseract)
+        # pytesseract — Python-обёртка над системным бинарником tesseract
+        run: sudo apt-get install -y tesseract-ocr
+
+      - name: Install package with dev extras
+        # Устанавливаем пакет + dev-зависимости (pytest)
+        run: pip install ".[dev]"
+
+      - name: Run tests
+        # pytest ищет файлы tests/test_*.py и запускает их
+        # -v — подробный вывод, --tb=short — краткий traceback при падении
+        run: pytest tests/ -v --tb=short
