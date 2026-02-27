@@ -93,11 +93,12 @@ class EnsembleOCR:
             cyrillic_count = sum(1 for c in v if "а" <= c <= "я" or "А" <= c <= "Я")
             score += cyrillic_count * 0.2
 
-            # Penalize garbage characters at start
-            if v and v[0].isdigit():
-                score -= 5
-            if len(v) > 1 and v[1] == " " and v[0].isupper() and len(v.split()[0]) == 1:
-                score -= 5  # Single capital letter at start
+            # Penalize likely misread characters at start of line.
+            # Only penalize if both variants exist and one clearly looks like
+            # a misread: e.g. lowercase 'l' where a digit '1' is expected is
+            # handled by the letter-ratio score already.
+            # Removed: digit penalty (broke numbered lists) and single capital
+            # letter penalty (broke sentences starting with "I", "A", etc.)
 
             scores.append((score, v))
 

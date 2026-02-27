@@ -98,19 +98,20 @@ class OCRCorrector:
         text = re.sub(r"\s+([.,!?;:)])", r"\1", text)
         text = re.sub(r"([.,!?;:])(?=[a-zA-Zа-яА-ЯёЁ])", r"\1 ", text)
 
-        # Common single-character corrections
-        text = re.sub(r"\b1\s+am\b", "I am", text, flags=re.IGNORECASE)
-        text = re.sub(r"\b1\s+have\b", "I have", text, flags=re.IGNORECASE)
-        text = re.sub(r"\b1\s+will\b", "I will", text, flags=re.IGNORECASE)
-        text = re.sub(r"\b1\'m\b", "I'm", text)
-        text = re.sub(r"\b1\'ve\b", "I've", text)
-        text = re.sub(r"\b1\'ll\b", "I'll", text)
+        # English-only single-character and word-boundary corrections.
+        # These patterns use English words so they must not run on non-English text.
+        if self.language in ("eng", "en"):
+            text = re.sub(r"\b1\s+am\b", "I am", text, flags=re.IGNORECASE)
+            text = re.sub(r"\b1\s+have\b", "I have", text, flags=re.IGNORECASE)
+            text = re.sub(r"\b1\s+will\b", "I will", text, flags=re.IGNORECASE)
+            text = re.sub(r"\b1\'m\b", "I'm", text)
+            text = re.sub(r"\b1\'ve\b", "I've", text)
+            text = re.sub(r"\b1\'ll\b", "I'll", text)
 
-        # Word boundary corrections
-        text = re.sub(r"\b0f\b", "of", text)
-        text = re.sub(r"\b0r\b", "or", text)
-        text = re.sub(r"\b1n\b", "in", text)
-        text = re.sub(r"\bt0\b", "to", text)
+            text = re.sub(r"\b0f\b", "of", text)
+            text = re.sub(r"\b0r\b", "or", text)
+            text = re.sub(r"\b1n\b", "in", text)
+            text = re.sub(r"\bt0\b", "to", text)
 
         return text
 
