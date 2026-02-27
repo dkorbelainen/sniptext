@@ -47,26 +47,32 @@ class ClipboardManager:
         """
         try:
             if self.tool == "wayland":
-                # wl-copy runs in background, we start it and let it run
-                # It will exit after clipboard is pasted once or replaced
+                # wl-copy stays running (serves clipboard) until the content
+                # is replaced; we must NOT use communicate() here or we'd
+                # block until the user pastes.
                 process = subprocess.Popen(
                     ["wl-copy"],
                     stdin=subprocess.PIPE,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.PIPE,
                 )
-                # Write and close stdin - this makes wl-copy capture the content
-                process.stdin.write(text.encode("utf-8"))
-                process.stdin.close()
+                try:
+                    process.stdin.write(text.encode("utf-8"))
+                    process.stdin.close()
+                except BrokenPipeError:
+                    # wl-copy exited before we finished writing
+                    stderr = process.stderr.read().decode(errors="replace")
+                    logger.error(f"wl-copy closed unexpectedly: {stderr}")
+                    return False
 
-                # Give it a moment to register with compositor
+                # Give compositor a moment to register the new selection
                 import time
 
                 time.sleep(0.05)
 
                 # Check if it started successfully (it should still be running)
                 if process.poll() is not None and process.returncode != 0:
-                    stderr = process.stderr.read().decode()
+                    stderr = process.stderr.read().decode(errors="replace")
                     logger.error(f"Failed to start wl-copy: {stderr}")
                     return False
 

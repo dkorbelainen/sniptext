@@ -164,7 +164,7 @@ class ConfidenceModel:
             confidence = 0.9
         else:
             # Use trained model for borderline cases
-            if not self.trained:
+            if not self.trained or self.model is None:
                 return self._heuristic_strategy(image)
 
             features_reshaped = features.reshape(1, -1)

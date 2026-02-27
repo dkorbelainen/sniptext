@@ -139,6 +139,9 @@ class ImageAnalyzer:
 
         # Upscale small images - critical for OCR quality
         width, height = image.size
+        if width == 0 or height == 0:
+            logger.warning(f"Received degenerate image ({width}x{height}), skipping enhancement")
+            return image
         if height < 100 or width < 300:
             scale_factor = max(2.0, 100 / height, 300 / width)
             new_width = int(width * scale_factor)

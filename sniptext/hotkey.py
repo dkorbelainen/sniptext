@@ -36,8 +36,9 @@ class HotkeyManager:
         self.clipboard_manager = clipboard_manager
 
         self.listener = None
-        # Guard flag: prevents a second capture while one is in progress
-        self._processing = False
+        # threading.Event provides atomic is_set/set/clear across threads,
+        # avoiding the read-check-then-spawn race that a plain bool would have.
+        self._processing = threading.Event()
         self._parse_hotkey()
 
     def _parse_hotkey(self) -> None:
@@ -106,7 +107,7 @@ class HotkeyManager:
                 # Check if hotkey is pressed
                 if self._is_hotkey_pressed(current_keys):
                     logger.info("Hotkey pressed!")
-                    if self._processing:
+                    if self._processing.is_set():
                         logger.debug("Already processing a capture, ignoring hotkey")
                         return
                     # Run OCR in a background thread so the listener thread
@@ -193,7 +194,7 @@ class HotkeyManager:
 
     def _on_hotkey_triggered(self) -> None:
         """Handle hotkey trigger - capture and OCR (runs in a background thread)."""
-        self._processing = True
+        self._processing.set()
         start_time = time.time()
 
         try:
@@ -240,7 +241,7 @@ class HotkeyManager:
             logger.error(f"Error processing capture: {e}")
             logger.exception(e)
         finally:
-            self._processing = False
+            self._processing.clear()
 
     def _show_notification(self, message: str) -> None:
         """
