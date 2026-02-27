@@ -1,9 +1,9 @@
 """Tests for ConfidenceModel online learning."""
 
 import json
+
 import numpy as np
 import pytest
-from pathlib import Path
 
 from sniptext.confidence import ConfidenceModel
 
