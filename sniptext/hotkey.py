@@ -1,5 +1,6 @@
 """Hotkey management for SnipText."""
 
+import threading
 import time
 
 from loguru import logger
@@ -35,6 +36,9 @@ class HotkeyManager:
         self.clipboard_manager = clipboard_manager
 
         self.listener = None
+        # threading.Event provides atomic is_set/set/clear across threads,
+        # avoiding the read-check-then-spawn race that a plain bool would have.
+        self._processing = threading.Event()
         self._parse_hotkey()
 
     def _parse_hotkey(self) -> None:
@@ -103,7 +107,13 @@ class HotkeyManager:
                 # Check if hotkey is pressed
                 if self._is_hotkey_pressed(current_keys):
                     logger.info("Hotkey pressed!")
-                    self._on_hotkey_triggered()
+                    if self._processing.is_set():
+                        logger.debug("Already processing a capture, ignoring hotkey")
+                        return
+                    # Run OCR in a background thread so the listener thread
+                    # is not blocked and remains responsive.
+                    thread = threading.Thread(target=self._on_hotkey_triggered, daemon=True)
+                    thread.start()
 
             except Exception as e:
                 logger.error(f"Error in key press handler: {e}")
@@ -181,7 +191,8 @@ class HotkeyManager:
         return modifiers_ok and key_pressed
 
     def _on_hotkey_triggered(self) -> None:
-        """Handle hotkey trigger - capture and OCR."""
+        """Handle hotkey trigger - capture and OCR (runs in a background thread)."""
+        self._processing.set()
         start_time = time.time()
 
         try:
@@ -227,6 +238,8 @@ class HotkeyManager:
         except Exception as e:
             logger.error(f"Error processing capture: {e}")
             logger.exception(e)
+        finally:
+            self._processing.clear()
 
     def _show_notification(self, message: str) -> None:
         """

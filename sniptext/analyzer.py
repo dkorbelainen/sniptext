@@ -139,6 +139,9 @@ class ImageAnalyzer:
 
         # Upscale small images - critical for OCR quality
         width, height = image.size
+        if width == 0 or height == 0:
+            logger.warning(f"Received degenerate image ({width}x{height}), skipping enhancement")
+            return image
         if height < 100 or width < 300:
             scale_factor = max(2.0, 100 / height, 300 / width)
             new_width = int(width * scale_factor)
@@ -150,12 +153,14 @@ class ImageAnalyzer:
         brightness = features[0] * 255
         contrast = features[1] * 128
 
-        # Invert if dark background
-        if self.should_invert(image):
+        # Invert if dark background (reuse already-computed brightness)
+        inverted = False
+        if brightness < 100:
             from PIL import ImageOps
 
             image = ImageOps.invert(image.convert("RGB"))
-            logger.debug("Applied color inversion")
+            inverted = True
+            logger.debug(f"Dark image detected (brightness={brightness:.1f}), applied inversion")
 
         # Enhance contrast if low
         if contrast < 40:
@@ -168,14 +173,17 @@ class ImageAnalyzer:
         image = enhancer.enhance(1.5)
         logger.debug("Applied sharpening")
 
-        # Adjust brightness if needed
-        if brightness < 80:
-            enhancer = ImageEnhance.Brightness(image)
-            image = enhancer.enhance(1.4)
-            logger.debug("Applied brightness increase")
-        elif brightness > 200:
-            enhancer = ImageEnhance.Brightness(image)
-            image = enhancer.enhance(0.8)
-            logger.debug("Applied brightness decrease")
+        # Adjust brightness if needed.
+        # After inversion a dark image becomes bright, so skip brightness
+        # adjustment in that case to avoid over-brightening.
+        if not inverted:
+            if brightness < 80:
+                enhancer = ImageEnhance.Brightness(image)
+                image = enhancer.enhance(1.4)
+                logger.debug("Applied brightness increase")
+            elif brightness > 200:
+                enhancer = ImageEnhance.Brightness(image)
+                image = enhancer.enhance(0.8)
+                logger.debug("Applied brightness decrease")
 
         return image

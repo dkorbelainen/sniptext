@@ -93,11 +93,12 @@ class EnsembleOCR:
             cyrillic_count = sum(1 for c in v if "а" <= c <= "я" or "А" <= c <= "Я")
             score += cyrillic_count * 0.2
 
-            # Penalize garbage characters at start
-            if v and v[0].isdigit():
-                score -= 5
-            if len(v) > 1 and v[1] == " " and v[0].isupper() and len(v.split()[0]) == 1:
-                score -= 5  # Single capital letter at start
+            # Penalize likely misread characters at start of line.
+            # Only penalize if both variants exist and one clearly looks like
+            # a misread: e.g. lowercase 'l' where a digit '1' is expected is
+            # handled by the letter-ratio score already.
+            # Removed: digit penalty (broke numbered lists) and single capital
+            # letter penalty (broke sentences starting with "I", "A", etc.)
 
             scores.append((score, v))
 
@@ -152,7 +153,13 @@ def post_process_text(
         return text
 
     if enable_correction:
-        corrector = OCRCorrector(language)
+        # For multi-language configs (e.g. "eng+rus") detect the dominant
+        # script in the recognised text and correct with the right language.
+        from .corrector import detect_dominant_language
+
+        candidates = [lang.strip() for lang in language.split("+")]
+        effective_lang = detect_dominant_language(text, candidates)
+        corrector = OCRCorrector(effective_lang)
         text = corrector.correct(text, aggressive=aggressive)
     else:
         import re
@@ -162,7 +169,16 @@ def post_process_text(
         text = re.sub(r"([.,!?:;])([а-яА-ЯёЁa-zA-Z])", r"\1 \2", text)
 
         lines = [line.strip() for line in text.split("\n")]
-        lines = [line for line in lines if line]
-        text = "\n".join(lines)
+        cleaned: list[str] = []
+        prev_blank = False
+        for line in lines:
+            if not line:
+                if not prev_blank and cleaned:
+                    cleaned.append("")
+                prev_blank = True
+            else:
+                cleaned.append(line)
+                prev_blank = False
+        text = "\n".join(cleaned).strip()
 
     return text

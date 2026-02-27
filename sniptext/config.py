@@ -1,10 +1,12 @@
 """Configuration management for SnipText."""
 
+import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 import yaml
+from loguru import logger
 
 
 @dataclass
@@ -69,6 +71,13 @@ class Config:
         # Convert string paths to Path objects
         if "ocr_model_path" in data and data["ocr_model_path"]:
             data["ocr_model_path"] = Path(data["ocr_model_path"]).expanduser()
+
+        # Drop unknown keys to avoid TypeError instead of crashing
+        known_keys = {f.name for f in dataclasses.fields(cls)}
+        unknown = set(data) - known_keys
+        if unknown:
+            logger.warning(f"Ignoring unknown config keys: {sorted(unknown)}")
+            data = {k: v for k, v in data.items() if k in known_keys}
 
         return cls(**data)
 

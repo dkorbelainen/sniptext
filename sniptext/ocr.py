@@ -256,6 +256,10 @@ class OCREngine:
 
             # Check if we should use adaptive strategy
             confidence_model = self._get_confidence_model()
+            features = (
+                confidence_model.analyzer.extract_features(pil_image) if confidence_model else None
+            )
+
             if confidence_model and self.config.ocr_engine == "ensemble":
                 # Predict optimal strategy
                 strategy, confidence = confidence_model.predict_strategy(pil_image)
@@ -271,6 +275,10 @@ class OCREngine:
 
                 if text:
                     logger.info(f"Recognized text: {len(text)} characters (strategy: {strategy})")
+
+                # Feed result back so the model learns over time
+                if features is not None:
+                    confidence_model.record_result(features, strategy, success=bool(text))
             elif self.config.ocr_engine == "ensemble":
                 # Always use ensemble without adaptive selection
                 text = self._recognize_ensemble(pil_image)
