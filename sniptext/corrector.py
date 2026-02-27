@@ -9,9 +9,8 @@ def detect_dominant_language(text: str, candidates: list[str]) -> str:
     """
     Detect the dominant language of *text* from a list of candidate language codes.
 
-    Uses character-set heuristics — no external library required.
-    Supported candidate codes: any subset of {"eng","en","rus","ru"}.
-    Falls back to the first candidate when detection is inconclusive.
+    Uses Unicode script heuristics — no external library required.
+    Works for any language combination supported by Tesseract/EasyOCR.
 
     Args:
         text: OCR text to analyse.
@@ -27,37 +26,91 @@ def detect_dominant_language(text: str, candidates: list[str]) -> str:
     if not letter_chars:
         return candidates[0]
 
-    cyrillic = sum(1 for c in letter_chars if "\u0400" <= c <= "\u04ff")
-    latin = sum(1 for c in letter_chars if c.isascii())
-    total = len(letter_chars)
+    # Score each candidate by counting how many characters in *text* belong
+    # to the Unicode scripts associated with that language.
+    scores = {code: 0 for code in candidates}
 
-    cyrillic_ratio = cyrillic / total
-    latin_ratio = latin / total
-
-    # Map candidate codes to script families
-    ru_codes = {"rus", "ru"}
-    en_codes = {"eng", "en"}
-
-    has_ru = bool(set(candidates) & ru_codes)
-    has_en = bool(set(candidates) & en_codes)
-
-    if has_ru and has_en:
-        dominant = "rus" if cyrillic_ratio >= latin_ratio else "eng"
+    for ch in letter_chars:
+        cp = ord(ch)
         for code in candidates:
-            if dominant in ("rus", "ru") and code in ru_codes:
-                logger.debug(
-                    f"Auto-detected language: Russian "
-                    f"(cyrillic={cyrillic_ratio:.0%}, latin={latin_ratio:.0%})"
-                )
-                return code
-            if dominant in ("eng", "en") and code in en_codes:
-                logger.debug(
-                    f"Auto-detected language: English "
-                    f"(cyrillic={cyrillic_ratio:.0%}, latin={latin_ratio:.0%})"
-                )
-                return code
+            if _char_matches_lang(cp, code):
+                scores[code] += 1
+
+    best = max(scores, key=lambda c: scores[c])
+    # Only switch away from the first candidate if there is clear evidence
+    if scores[best] > 0:
+        if best != candidates[0]:
+            logger.debug(
+                f"Auto-detected language: {best!r} "
+                f"(scores: { {k: v for k, v in scores.items()} })"
+            )
+        return best
 
     return candidates[0]
+
+
+def _char_matches_lang(cp: int, lang_code: str) -> bool:
+    """Return True if codepoint *cp* belongs to the script of *lang_code*."""
+    # Normalise to lower-case Tesseract-style code
+    code = lang_code.lower().strip()
+
+    # ── Latin-script languages ──────────────────────────────────────────────
+    _LATIN = (
+        "eng", "en", "fra", "fr", "deu", "de", "spa", "es", "por", "pt",
+        "ita", "it", "nld", "nl", "pol", "pl", "swe", "sv", "dan", "da",
+        "nor", "nb", "fin", "fi", "hun", "hu", "ces", "cs", "slk", "sk",
+        "ron", "ro", "hrv", "hr", "slv", "sl", "lit", "lt", "lav", "lv",
+        "est", "et", "tur", "tr", "ind", "id", "msa", "ms", "vie", "vi",
+        "afr", "af", "swa", "sw", "lat", "la",
+    )
+    if code in _LATIN:
+        # Basic Latin + Latin-1 Supplement + Latin Extended A/B
+        return (0x0041 <= cp <= 0x007A) or (0x00C0 <= cp <= 0x024F)
+
+    # ── Cyrillic-script languages ───────────────────────────────────────────
+    _CYRILLIC = ("rus", "ru", "bul", "bg", "ukr", "uk", "bel", "be", "mkd", "mk", "srp", "sr")
+    if code in _CYRILLIC:
+        return 0x0400 <= cp <= 0x04FF
+
+    # ── Arabic-script languages ─────────────────────────────────────────────
+    _ARABIC = ("ara", "ar", "fas", "fa", "urd", "ur", "pus", "ps")
+    if code in _ARABIC:
+        return (0x0600 <= cp <= 0x06FF) or (0x0750 <= cp <= 0x077F)
+
+    # ── CJK / Chinese ───────────────────────────────────────────────────────
+    if code in ("chi_sim", "chi_tra", "zho", "zh"):
+        return (0x4E00 <= cp <= 0x9FFF) or (0x3400 <= cp <= 0x4DBF)
+
+    # ── Japanese ────────────────────────────────────────────────────────────
+    if code in ("jpn", "ja"):
+        return (
+            (0x3040 <= cp <= 0x309F)   # Hiragana
+            or (0x30A0 <= cp <= 0x30FF)  # Katakana
+            or (0x4E00 <= cp <= 0x9FFF)  # Kanji (shared with Chinese)
+        )
+
+    # ── Korean ──────────────────────────────────────────────────────────────
+    if code in ("kor", "ko"):
+        return (0xAC00 <= cp <= 0xD7FF) or (0x1100 <= cp <= 0x11FF)
+
+    # ── Hebrew ──────────────────────────────────────────────────────────────
+    if code in ("heb", "he"):
+        return 0x0590 <= cp <= 0x05FF
+
+    # ── Greek ───────────────────────────────────────────────────────────────
+    if code in ("ell", "el"):
+        return 0x0370 <= cp <= 0x03FF
+
+    # ── Thai ────────────────────────────────────────────────────────────────
+    if code in ("tha", "th"):
+        return 0x0E00 <= cp <= 0x0E7F
+
+    # ── Devanagari (Hindi, Sanskrit, …) ─────────────────────────────────────
+    if code in ("hin", "hi", "san", "sa", "mar", "mr", "nep", "ne"):
+        return 0x0900 <= cp <= 0x097F
+
+    # Unknown language code — never matches (fall back to first candidate)
+    return False
 
 
 class OCRCorrector:
