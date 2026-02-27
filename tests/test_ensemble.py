@@ -81,3 +81,16 @@ class TestPostProcessText:
     def test_returns_string(self):
         result = post_process_text("some text", language="eng")
         assert isinstance(result, str)
+
+    def test_numbered_list_not_penalised(self, ensemble):
+        """Lines starting with a digit ('1. Item') must not be downscored."""
+        results = ["1. First item\n2. Second item", "1. First item\n2. Second item"]
+        result = ensemble.combine_results(results)
+        assert "1." in result
+        assert "2." in result
+
+    def test_single_capital_not_penalised(self, ensemble):
+        """Lines where the only word is a single capital ('I', 'A') must not be removed."""
+        results = ["I went home", "I went home"]
+        result = ensemble.combine_results(results)
+        assert result.startswith("I")

@@ -2,7 +2,7 @@
 
 import pytest
 
-from sniptext.corrector import OCRCorrector, correct_ocr_text
+from sniptext.corrector import OCRCorrector, correct_ocr_text, detect_dominant_language
 
 
 def test_basic_corrections():
@@ -88,6 +88,67 @@ def test_convenience_function():
     result = correct_ocr_text("1 am going t0 school", language="eng")
     assert "I am" in result
     assert "to school" in result
+
+
+def test_english_corrections_not_applied_to_russian():
+    """English-only substitutions must not mutate non-English text."""
+    corrector = OCRCorrector("rus")
+    text = "Привет 1n 0f мир"
+    result = corrector.correct(text)
+    assert "1n" in result
+    assert "0f" in result
+
+
+def test_paragraph_breaks_preserved():
+    """Newlines must survive spell correction."""
+    corrector = OCRCorrector("eng")
+    text = "First paragraph.\n\nSecond paragraph."
+    result = corrector.correct(text)
+    assert "\n" in result
+    assert "First paragraph" in result
+    assert "Second paragraph" in result
+
+
+def test_multiple_blank_lines_collapsed():
+    """Three or more consecutive blank lines should be collapsed to one."""
+    corrector = OCRCorrector("eng")
+    text = "A\n\n\n\nB"
+    result = corrector.correct(text)
+    assert "\n\n\n" not in result
+
+
+class TestDetectDominantLanguage:
+    def test_single_candidate_passthrough(self):
+        assert detect_dominant_language("anything", ["eng"]) == "eng"
+
+    def test_empty_text_returns_first(self):
+        assert detect_dominant_language("", ["eng", "rus"]) == "eng"
+
+    def test_russian_text_detected(self):
+        text = "Привет мир это тест кириллицы"
+        assert detect_dominant_language(text, ["eng", "rus"]) == "rus"
+
+    def test_english_text_detected(self):
+        text = "Hello world this is English text"
+        assert detect_dominant_language(text, ["eng", "rus"]) == "eng"
+
+    def test_arabic_detected(self):
+        text = "مرحبا بالعالم"
+        assert detect_dominant_language(text, ["fra", "ara"]) == "ara"
+
+    def test_korean_detected(self):
+        text = "안녕하세요 세계"
+        assert detect_dominant_language(text, ["jpn", "kor"]) == "kor"
+
+    def test_devanagari_detected(self):
+        text = "नमस्ते दुनिया"
+        assert detect_dominant_language(text, ["deu", "hin"]) == "hin"
+
+    def test_unknown_lang_code_falls_back(self):
+        # Unknown codes should not crash; fall back to first candidate
+        text = "hello world"
+        result = detect_dominant_language(text, ["eng", "xyz_unknown"])
+        assert result in ("eng", "xyz_unknown")
 
 
 if __name__ == "__main__":
