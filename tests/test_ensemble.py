@@ -69,9 +69,14 @@ class TestPostProcessText:
         result = post_process_text("hello , world", language="eng", enable_correction=False)
         assert result == "hello, world"
 
-    def test_no_correction_removes_empty_lines(self):
+    def test_no_correction_collapses_multiple_empty_lines(self):
+        # Single blank line (paragraph break) must be preserved
         result = post_process_text("line one\n\nline two", language="eng", enable_correction=False)
-        assert "\n\n" not in result
+        assert "line one" in result
+        assert "line two" in result
+        # Multiple consecutive blank lines should be collapsed to one
+        result2 = post_process_text("a\n\n\n\nb", language="eng", enable_correction=False)
+        assert "\n\n\n" not in result2
 
     def test_returns_string(self):
         result = post_process_text("some text", language="eng")

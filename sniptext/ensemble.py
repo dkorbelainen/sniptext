@@ -163,7 +163,16 @@ def post_process_text(
         text = re.sub(r"([.,!?:;])([а-яА-ЯёЁa-zA-Z])", r"\1 \2", text)
 
         lines = [line.strip() for line in text.split("\n")]
-        lines = [line for line in lines if line]
-        text = "\n".join(lines)
+        cleaned: list[str] = []
+        prev_blank = False
+        for line in lines:
+            if not line:
+                if not prev_blank and cleaned:
+                    cleaned.append("")
+                prev_blank = True
+            else:
+                cleaned.append(line)
+                prev_blank = False
+        text = "\n".join(cleaned).strip()
 
     return text

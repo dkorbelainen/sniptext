@@ -150,14 +150,14 @@ class ImageAnalyzer:
         brightness = features[0] * 255
         contrast = features[1] * 128
 
-        # Invert if dark background
+        # Invert if dark background (reuse already-computed brightness)
         inverted = False
-        if self.should_invert(image):
+        if brightness < 100:
             from PIL import ImageOps
 
             image = ImageOps.invert(image.convert("RGB"))
             inverted = True
-            logger.debug("Applied color inversion")
+            logger.debug(f"Dark image detected (brightness={brightness:.1f}), applied inversion")
 
         # Enhance contrast if low
         if contrast < 40:

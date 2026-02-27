@@ -178,11 +178,27 @@ class OCRCorrector:
         # Remove multiple spaces
         text = re.sub(r" {2,}", " ", text)
 
-        # Remove empty lines
+        # Strip trailing/leading whitespace from each line, but preserve
+        # intentional blank lines (paragraph breaks) — collapse runs of
+        # more than one consecutive blank line down to a single blank line.
         lines = [line.strip() for line in text.split("\n")]
-        lines = [line for line in lines if line]
+        cleaned: list[str] = []
+        prev_blank = False
+        for line in lines:
+            if not line:
+                if not prev_blank and cleaned:
+                    # Keep one blank line as paragraph separator
+                    cleaned.append("")
+                prev_blank = True
+            else:
+                cleaned.append(line)
+                prev_blank = False
 
-        return "\n".join(lines).strip()
+        return "\n".join(cleaned).strip()
+
+# Module-level cache so repeated calls with the same language reuse
+# the already-initialised corrector (avoids reloading the SymSpell dict).
+_corrector_cache: dict[str, "OCRCorrector"] = {}
 
 
 def correct_ocr_text(text: str, language: str = "eng", aggressive: bool = False) -> str:
@@ -197,5 +213,6 @@ def correct_ocr_text(text: str, language: str = "eng", aggressive: bool = False)
     Returns:
         Corrected text
     """
-    corrector = OCRCorrector(language)
-    return corrector.correct(text, aggressive=aggressive)
+    if language not in _corrector_cache:
+        _corrector_cache[language] = OCRCorrector(language)
+    return _corrector_cache[language].correct(text, aggressive=aggressive)
