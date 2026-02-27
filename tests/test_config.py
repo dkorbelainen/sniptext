@@ -72,3 +72,13 @@ class TestConfigSaveLoad:
         # Should not raise
         config = Config.load(config_path)
         assert config.ocr_language == "eng"
+
+    def test_load_ignores_unknown_keys(self, tmp_path):
+        """Config.load must not crash on unknown YAML keys."""
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(
+            "hotkey: <ctrl>+<alt>+t\nocr_language: eng\ntotally_unknown_key: some_value\n"
+        )
+        config = Config.load(config_path)
+        assert config.hotkey == "<ctrl>+<alt>+t"
+        assert not hasattr(config, "totally_unknown_key")

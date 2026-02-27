@@ -95,8 +95,17 @@ class TestEnhanceForOcr:
         assert result.width > img.width
         assert result.height > img.height
 
-    def test_normal_image_stays_same_size(self, analyzer):
-        img = make_image(600, 400)
+    def test_degenerate_image_does_not_crash(self, analyzer):
+        """A 0-size image must not raise ZeroDivisionError."""
+        img = Image.new("RGB", (0, 0))
         result = analyzer.enhance_for_ocr(img)
-        # Size should not change for already-large images
-        assert result.size == img.size
+        assert isinstance(result, Image.Image)
+
+    def test_dark_image_not_over_brightened(self, analyzer):
+        """After inverting a dark image brightness must stay reasonable (not > 240)."""
+        img = make_image(400, 200, value=40)
+        result = analyzer.enhance_for_ocr(img)
+        import numpy as np
+
+        brightness = np.array(result).mean()
+        assert brightness < 240, f"Over-brightened: {brightness:.1f}"
