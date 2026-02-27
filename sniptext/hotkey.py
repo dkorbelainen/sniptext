@@ -112,9 +112,7 @@ class HotkeyManager:
                         return
                     # Run OCR in a background thread so the listener thread
                     # is not blocked and remains responsive.
-                    thread = threading.Thread(
-                        target=self._on_hotkey_triggered, daemon=True
-                    )
+                    thread = threading.Thread(target=self._on_hotkey_triggered, daemon=True)
                     thread.start()
 
             except Exception as e:

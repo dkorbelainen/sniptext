@@ -41,8 +41,7 @@ def detect_dominant_language(text: str, candidates: list[str]) -> str:
     if scores[best] > 0:
         if best != candidates[0]:
             logger.debug(
-                f"Auto-detected language: {best!r} "
-                f"(scores: { {k: v for k, v in scores.items()} })"
+                f"Auto-detected language: {best!r} (scores: { {k: v for k, v in scores.items()} })"
             )
         return best
 
@@ -56,12 +55,62 @@ def _char_matches_lang(cp: int, lang_code: str) -> bool:
 
     # ── Latin-script languages ──────────────────────────────────────────────
     _LATIN = (
-        "eng", "en", "fra", "fr", "deu", "de", "spa", "es", "por", "pt",
-        "ita", "it", "nld", "nl", "pol", "pl", "swe", "sv", "dan", "da",
-        "nor", "nb", "fin", "fi", "hun", "hu", "ces", "cs", "slk", "sk",
-        "ron", "ro", "hrv", "hr", "slv", "sl", "lit", "lt", "lav", "lv",
-        "est", "et", "tur", "tr", "ind", "id", "msa", "ms", "vie", "vi",
-        "afr", "af", "swa", "sw", "lat", "la",
+        "eng",
+        "en",
+        "fra",
+        "fr",
+        "deu",
+        "de",
+        "spa",
+        "es",
+        "por",
+        "pt",
+        "ita",
+        "it",
+        "nld",
+        "nl",
+        "pol",
+        "pl",
+        "swe",
+        "sv",
+        "dan",
+        "da",
+        "nor",
+        "nb",
+        "fin",
+        "fi",
+        "hun",
+        "hu",
+        "ces",
+        "cs",
+        "slk",
+        "sk",
+        "ron",
+        "ro",
+        "hrv",
+        "hr",
+        "slv",
+        "sl",
+        "lit",
+        "lt",
+        "lav",
+        "lv",
+        "est",
+        "et",
+        "tur",
+        "tr",
+        "ind",
+        "id",
+        "msa",
+        "ms",
+        "vie",
+        "vi",
+        "afr",
+        "af",
+        "swa",
+        "sw",
+        "lat",
+        "la",
     )
     if code in _LATIN:
         # Basic Latin + Latin-1 Supplement + Latin Extended A/B
@@ -84,7 +133,7 @@ def _char_matches_lang(cp: int, lang_code: str) -> bool:
     # ── Japanese ────────────────────────────────────────────────────────────
     if code in ("jpn", "ja"):
         return (
-            (0x3040 <= cp <= 0x309F)   # Hiragana
+            (0x3040 <= cp <= 0x309F)  # Hiragana
             or (0x30A0 <= cp <= 0x30FF)  # Katakana
             or (0x4E00 <= cp <= 0x9FFF)  # Kanji (shared with Chinese)
         )
@@ -312,6 +361,7 @@ class OCRCorrector:
                 prev_blank = False
 
         return "\n".join(cleaned).strip()
+
 
 # Module-level cache so repeated calls with the same language reuse
 # the already-initialised corrector (avoids reloading the SymSpell dict).
