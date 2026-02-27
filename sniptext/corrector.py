@@ -5,6 +5,61 @@ import re
 from loguru import logger
 
 
+def detect_dominant_language(text: str, candidates: list[str]) -> str:
+    """
+    Detect the dominant language of *text* from a list of candidate language codes.
+
+    Uses character-set heuristics — no external library required.
+    Supported candidate codes: any subset of {"eng","en","rus","ru"}.
+    Falls back to the first candidate when detection is inconclusive.
+
+    Args:
+        text: OCR text to analyse.
+        candidates: Language codes to choose from (Tesseract or EasyOCR format).
+
+    Returns:
+        The best-matching language code from *candidates*.
+    """
+    if len(candidates) == 1:
+        return candidates[0]
+
+    letter_chars = [c for c in text if c.isalpha()]
+    if not letter_chars:
+        return candidates[0]
+
+    cyrillic = sum(1 for c in letter_chars if "\u0400" <= c <= "\u04ff")
+    latin = sum(1 for c in letter_chars if c.isascii())
+    total = len(letter_chars)
+
+    cyrillic_ratio = cyrillic / total
+    latin_ratio = latin / total
+
+    # Map candidate codes to script families
+    ru_codes = {"rus", "ru"}
+    en_codes = {"eng", "en"}
+
+    has_ru = bool(set(candidates) & ru_codes)
+    has_en = bool(set(candidates) & en_codes)
+
+    if has_ru and has_en:
+        dominant = "rus" if cyrillic_ratio >= latin_ratio else "eng"
+        for code in candidates:
+            if dominant in ("rus", "ru") and code in ru_codes:
+                logger.debug(
+                    f"Auto-detected language: Russian "
+                    f"(cyrillic={cyrillic_ratio:.0%}, latin={latin_ratio:.0%})"
+                )
+                return code
+            if dominant in ("eng", "en") and code in en_codes:
+                logger.debug(
+                    f"Auto-detected language: English "
+                    f"(cyrillic={cyrillic_ratio:.0%}, latin={latin_ratio:.0%})"
+                )
+                return code
+
+    return candidates[0]
+
+
 class OCRCorrector:
     """Corrects OCR errors using dictionary-based spell checking."""
 
@@ -125,7 +180,16 @@ class OCRCorrector:
         except ImportError:
             return text
 
-        words = text.split()
+        # Process line by line to preserve paragraph structure.
+        # text.split() would collapse newlines into spaces.
+        corrected_lines = []
+        for line in text.split("\n"):
+            corrected_lines.append(self._spell_correct_line(line, aggressive, Verbosity))
+        return "\n".join(corrected_lines)
+
+    def _spell_correct_line(self, line: str, aggressive: bool, Verbosity) -> str:
+        """Spell-correct a single line of text."""
+        words = line.split(" ")
         corrected_words = []
 
         for word in words:

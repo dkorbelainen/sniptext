@@ -153,7 +153,13 @@ def post_process_text(
         return text
 
     if enable_correction:
-        corrector = OCRCorrector(language)
+        # For multi-language configs (e.g. "eng+rus") detect the dominant
+        # script in the recognised text and correct with the right language.
+        from .corrector import detect_dominant_language
+
+        candidates = [lang.strip() for lang in language.split("+")]
+        effective_lang = detect_dominant_language(text, candidates)
+        corrector = OCRCorrector(effective_lang)
         text = corrector.correct(text, aggressive=aggressive)
     else:
         import re

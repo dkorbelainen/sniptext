@@ -1,5 +1,6 @@
 """Confidence scoring model for adaptive OCR selection."""
 
+import json
 import pickle
 from pathlib import Path
 
@@ -8,6 +9,9 @@ from loguru import logger
 from PIL import Image
 
 from .analyzer import ImageAnalyzer
+
+# After this many new feedback samples, automatically retrain and save.
+_RETRAIN_EVERY = 20
 
 
 class ConfidenceModel:
@@ -25,6 +29,7 @@ class ConfidenceModel:
             model_path = config_dir / "confidence_model.pkl"
 
         self.model_path = Path(model_path)
+        self.feedback_path = self.model_path.with_name("ocr_feedback.jsonl")
 
     def _ensure_initialized(self):
         """Ensure model is loaded/trained (called on first use)."""
@@ -197,16 +202,82 @@ class ConfidenceModel:
 
     def record_result(self, features: np.ndarray, strategy: str, success: bool):
         """
-        Record OCR result for future model improvement.
+        Record an OCR result for future model improvement.
+
+        Samples are appended to ``ocr_feedback.jsonl`` (one JSON line each).
+        Every :data:`_RETRAIN_EVERY` new samples the model is retrained on
+        the accumulated feedback and saved to disk so subsequent sessions
+        benefit from the learning immediately.
 
         Args:
-            features: Image features
-            strategy: Strategy used ('fast' or 'ensemble')
-            success: Whether OCR was successful
+            features: Image feature vector (from ImageAnalyzer.extract_features).
+            strategy: Strategy that was used — ``'fast'`` or ``'ensemble'``.
+            success: ``True`` if OCR produced a non-empty result.
         """
-        # This would be used for online learning in future
-        # For now, just log
-        logger.debug(f"Recorded result: strategy={strategy}, success={success}")
+        label = 0 if strategy == "fast" else 1
+
+        sample = {
+            "features": features.tolist(),
+            "label": label,
+            "success": success,
+        }
+
+        try:
+            self.feedback_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.feedback_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(sample) + "\n")
+        except Exception as e:
+            logger.warning(f"Could not write feedback sample: {e}")
+            return
+
+        logger.debug(f"Recorded feedback: strategy={strategy}, success={success}")
+
+        # Count lines to decide if retraining is due
+        try:
+            with open(self.feedback_path, "r", encoding="utf-8") as f:
+                n_samples = sum(1 for _ in f)
+        except Exception:
+            return
+
+        if n_samples % _RETRAIN_EVERY == 0:
+            logger.info(f"Retraining confidence model on {n_samples} feedback samples…")
+            self._retrain_from_feedback()
+
+    def _retrain_from_feedback(self):
+        """Retrain the confidence model using accumulated feedback data."""
+        try:
+            samples = []
+            with open(self.feedback_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        samples.append(json.loads(line))
+        except Exception as e:
+            logger.warning(f"Could not read feedback file: {e}")
+            return
+
+        if len(samples) < 10:
+            logger.debug("Not enough samples to retrain")
+            return
+
+        X = np.array([s["features"] for s in samples])
+        y = np.array([s["label"] for s in samples])
+
+        try:
+            from sklearn.ensemble import GradientBoostingClassifier
+
+            new_model = GradientBoostingClassifier(
+                n_estimators=50, max_depth=3, learning_rate=0.1, random_state=42
+            )
+            new_model.fit(X, y)
+            self.model = new_model
+            self.trained = True
+            self.save_model()
+            logger.info(f"Confidence model retrained on {len(samples)} samples and saved")
+        except ImportError:
+            logger.debug("sklearn not available — skipping retrain")
+        except Exception as e:
+            logger.warning(f"Retrain failed: {e}")
 
     def _load_model(self):
         """Load trained model from disk."""
