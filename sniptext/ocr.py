@@ -254,38 +254,32 @@ class OCREngine:
         try:
             pil_image = self._prepare_image(image)
 
-            # Check if we should use adaptive strategy
             confidence_model = self._get_confidence_model()
             features = (
                 confidence_model.analyzer.extract_features(pil_image) if confidence_model else None
             )
 
+            text = ""
             if confidence_model and self.config.ocr_engine == "ensemble":
-                # Predict optimal strategy
                 strategy, confidence = confidence_model.predict_strategy(pil_image)
 
                 if strategy == "fast":
-                    # Use single fast backend
                     logger.debug(f"Using fast mode (confidence: {confidence:.2f})")
                     text = self.backend.recognize(pil_image)
                 else:
-                    # Use ensemble for difficult images
                     logger.debug(f"Using ensemble mode (confidence: {confidence:.2f})")
                     text = self._recognize_ensemble(pil_image)
 
                 if text:
                     logger.info(f"Recognized text: {len(text)} characters (strategy: {strategy})")
 
-                # Feed result back so the model learns over time
                 if features is not None:
                     confidence_model.record_result(features, strategy, success=bool(text))
             elif self.config.ocr_engine == "ensemble":
-                # Always use ensemble without adaptive selection
                 text = self._recognize_ensemble(pil_image)
                 if text:
                     logger.info(f"Recognized text: {len(text)} characters (mode: ensemble)")
             else:
-                # Use single backend
                 text = self.backend.recognize(pil_image)
                 if text:
                     logger.info(f"Recognized text: {len(text)} characters")
