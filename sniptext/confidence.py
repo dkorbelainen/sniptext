@@ -37,10 +37,8 @@ class ConfidenceModel:
         if self._initialized:
             return
 
-        # Try to load existing model
         self._load_model()
 
-        # Initialize with default model if no trained model exists
         if not self.trained:
             self._initialize_default_model()
 
@@ -51,11 +49,9 @@ class ConfidenceModel:
         logger.info("Initializing confidence model with baseline data")
 
         # Create synthetic training data based on known patterns
+        # Format: [brightness, contrast, sharpness, has_color, size_ratio]
         X_train = []
         y_train = []
-
-        # Generate synthetic samples
-        # Format: [brightness, contrast, sharpness, has_color, size_ratio]
 
         # Easy cases (0 = use fast Tesseract only) - 60% of data
         for _ in range(60):
@@ -124,7 +120,6 @@ class ConfidenceModel:
             self.model.fit(X_train, y_train)
             self.trained = True
 
-            # Log feature importances
             feature_names = ["brightness", "contrast", "sharpness", "has_color", "size_ratio"]
             importances = self.model.feature_importances_
             logger.debug(f"Feature importances: {dict(zip(feature_names, importances))}")
@@ -146,26 +141,20 @@ class ConfidenceModel:
             strategy: 'fast' or 'ensemble'
             confidence: probability score (0-1)
         """
-        # Ensure model is initialized on first use
         self._ensure_initialized()
 
-        # Extract features
         features = self.analyzer.extract_features(image)
 
         contrast = features[1]
         sharpness = features[2]
 
-        # Calculate quality score
         # High contrast and good sharpness = easy case
         quality_score = contrast * 0.6 + sharpness * 0.4
 
-        # Decision rules
         if contrast > 0.5 and sharpness > 0.4:
-            # Good quality - use fast mode
             strategy = "fast"
             confidence = min(quality_score, 0.95)
         elif contrast < 0.2 or sharpness < 0.2:
-            # Poor quality - definitely use ensemble
             strategy = "ensemble"
             confidence = 0.9
         else:

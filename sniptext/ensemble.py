@@ -31,7 +31,6 @@ class EnsembleOCR:
         if len(results) == 1:
             return results[0]
 
-        # Filter empty results
         results = [r for r in results if r.strip()]
 
         if not results:
@@ -46,7 +45,6 @@ class EnsembleOCR:
         combined_lines = []
 
         for line_idx in range(max_lines):
-            # Collect all variants of this line
             line_variants = []
             for lines in all_lines:
                 if line_idx < len(lines):
@@ -55,7 +53,6 @@ class EnsembleOCR:
             if not line_variants:
                 continue
 
-            # Pick best line variant
             best_line = self._pick_best_line(line_variants)
             if best_line.strip():  # Only add non-empty lines
                 combined_lines.append(best_line)
@@ -67,7 +64,6 @@ class EnsembleOCR:
         if len(variants) == 1:
             return variants[0]
 
-        # Strip all variants for comparison
         stripped = [(v.strip(), v) for v in variants]
         variants = [s[0] for s in stripped if s[0]]
 
@@ -77,7 +73,6 @@ class EnsembleOCR:
         if len(variants) == 1:
             return variants[0]
 
-        # Score each variant
         scores = []
         for v in variants:
             score = 0
@@ -102,7 +97,6 @@ class EnsembleOCR:
 
             scores.append((score, v))
 
-        # Return highest scored variant
         best = max(scores, key=lambda x: x[0])
         logger.debug(f"Selected variant (score {best[0]:.1f}): {best[1][:50]}...")
         return best[1]
@@ -117,7 +111,6 @@ class EnsembleOCR:
         if len(results) < 2:
             return 0.5
 
-        # Calculate pairwise similarity
         similarities = []
         for i in range(len(results)):
             for j in range(i + 1, len(results)):

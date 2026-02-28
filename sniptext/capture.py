@@ -35,7 +35,6 @@ class ScreenCapture:
             logger.info(f"Using configured display server: {self.display_server}")
             return
 
-        # Auto-detect
         if os.environ.get("WAYLAND_DISPLAY"):
             self.display_server = "wayland"
             logger.info("Detected Wayland display server")
@@ -83,7 +82,6 @@ class ScreenCapture:
         Returns:
             Captured image as numpy array or None if failed
         """
-        # Use temp file if no output path specified
         if output_path is None:
             temp_file = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
             output_path = Path(temp_file.name)
@@ -93,20 +91,17 @@ class ScreenCapture:
             cleanup_temp = False
 
         try:
-            # Capture screenshot
             success = self._capture_to_file(output_path)
 
             if not success or not output_path.exists():
                 logger.error("Screenshot capture failed")
                 return None
 
-            # Load image
             image = Image.open(output_path)
             image_array = np.array(image)
 
             logger.info(f"Captured image: {image_array.shape}")
 
-            # Cleanup temp file
             if cleanup_temp:
                 output_path.unlink()
 
