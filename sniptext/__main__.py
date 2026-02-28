@@ -5,11 +5,12 @@ Main entry point for the application.
 
 import argparse
 import sys
+from importlib.metadata import version as _pkg_version
 from pathlib import Path
 
 from loguru import logger
 
-from sniptext import __version__
+__version__ = _pkg_version("sniptext")
 
 
 def setup_logging(verbose: bool = False):
