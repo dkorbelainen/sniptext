@@ -10,11 +10,6 @@ from pathlib import Path
 from loguru import logger
 
 from sniptext import __version__
-from sniptext.capture import ScreenCapture
-from sniptext.clipboard import ClipboardManager
-from sniptext.config import Config
-from sniptext.hotkey import HotkeyManager
-from sniptext.ocr import OCREngine
 
 
 def setup_logging(verbose: bool = False):
@@ -67,6 +62,15 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Heavy imports are deferred until after parse_args() so that lightweight
+    # flags like --version and --help exit immediately without loading
+    # numpy / Pillow / pytesseract.
+    from sniptext.capture import ScreenCapture
+    from sniptext.clipboard import ClipboardManager
+    from sniptext.config import Config
+    from sniptext.hotkey import HotkeyManager
+    from sniptext.ocr import OCREngine
 
     # Setup logging
     setup_logging(args.verbose)
