@@ -3,6 +3,7 @@
 import json
 import pickle
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 from loguru import logger
@@ -17,7 +18,7 @@ _RETRAIN_EVERY = 20
 class ConfidenceModel:
     """Model to predict OCR confidence and choose optimal strategy."""
 
-    def __init__(self, model_path: Path = None):
+    def __init__(self, model_path: Optional[Path] = None):
         """Initialize confidence model (lazy initialization)."""
         self.analyzer = ImageAnalyzer()
         self.model = None

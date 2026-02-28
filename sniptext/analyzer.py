@@ -2,7 +2,7 @@
 
 import numpy as np
 from loguru import logger
-from PIL import Image, ImageStat
+from PIL import Image, ImageEnhance, ImageOps, ImageStat
 
 
 class ImageAnalyzer:
@@ -135,8 +135,6 @@ class ImageAnalyzer:
         Returns:
             Enhanced image
         """
-        from PIL import ImageEnhance
-
         # Upscale small images - critical for OCR quality
         width, height = image.size
         if width == 0 or height == 0:
@@ -156,8 +154,6 @@ class ImageAnalyzer:
         # Invert if dark background (reuse already-computed brightness)
         inverted = False
         if brightness < 100:
-            from PIL import ImageOps
-
             image = ImageOps.invert(image.convert("RGB"))
             inverted = True
             logger.debug(f"Dark image detected (brightness={brightness:.1f}), applied inversion")
