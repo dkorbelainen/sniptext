@@ -66,14 +66,12 @@ class HotkeyManager:
             elif part in ("super", "win", "meta"):
                 self.modifiers.add(keyboard.Key.cmd)
             else:
-                # Regular key
                 self.key = part
 
         logger.debug(f"Parsed hotkey - modifiers: {self.modifiers}, key: {self.key}")
 
     def start(self) -> None:
         """Start listening for hotkeys."""
-        # Check for Wayland
         session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()
         if session_type == "wayland":
             logger.warning("=" * 60)
@@ -98,13 +96,11 @@ class HotkeyManager:
         def on_press(key):
             """Handle key press."""
             try:
-                # Add to current keys
                 if hasattr(key, "char") and key.char:
                     current_keys.add(key.char.lower())
                 else:
                     current_keys.add(key)
 
-                # Check if hotkey is pressed
                 if self._is_hotkey_pressed(current_keys):
                     logger.info("Hotkey pressed!")
                     if self._processing.is_set():
@@ -121,7 +117,6 @@ class HotkeyManager:
         def on_release(key):
             """Handle key release."""
             try:
-                # Remove from current keys
                 if hasattr(key, "char") and key.char:
                     current_keys.discard(key.char.lower())
                 else:
@@ -185,7 +180,6 @@ class HotkeyManager:
         else:
             modifiers_ok = True
 
-        # Check if main key is pressed
         key_pressed = self.key in current_keys if self.key else False
 
         return modifiers_ok and key_pressed
@@ -196,7 +190,6 @@ class HotkeyManager:
         start_time = time.time()
 
         try:
-            # Capture screen
             logger.info("Capturing screen region...")
             image = self.screen_capture.capture_region()
 
@@ -207,7 +200,6 @@ class HotkeyManager:
             capture_time = time.time() - start_time
             logger.debug(f"Capture took {capture_time:.3f}s")
 
-            # Run OCR
             logger.info("Running OCR...")
             ocr_start = time.time()
             text = self.ocr_engine.recognize(image)
@@ -218,7 +210,6 @@ class HotkeyManager:
                 logger.warning("No text recognized")
                 return
 
-            # Copy to clipboard
             logger.info("Copying to clipboard...")
             success = self.clipboard_manager.copy(text)
 
@@ -229,7 +220,6 @@ class HotkeyManager:
                     f"(capture: {capture_time:.3f}s, OCR: {ocr_time:.3f}s)"
                 )
 
-                # Show notification if enabled
                 if self.config.notification_enabled:
                     self._show_notification(f"Copied {len(text)} characters")
             else:
