@@ -226,7 +226,8 @@ class ConfidenceModel:
         try:
             with open(self.feedback_path, "r", encoding="utf-8") as f:
                 n_samples = sum(1 for _ in f)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Could not count feedback samples: {e}")
             return
 
         if n_samples % _RETRAIN_EVERY == 0:
