@@ -46,17 +46,16 @@ def test_imports():
     assert ImageAnalyzer is not None
 
 
-def test_no_eager_heavy_imports():
+def test_no_eager_heavy_imports(monkeypatch):
     """Regression: `import sniptext` must not load numpy/Pillow/pytesseract."""
     import importlib
     import sys
 
     heavy = {"numpy", "PIL", "pytesseract", "easyocr", "sklearn"}
 
-    # Remove sniptext from sys.modules to force a fresh import
-    to_remove = [k for k in sys.modules if k == "sniptext" or k.startswith("sniptext.")]
-    for k in to_remove:
-        del sys.modules[k]
+    sniptext_keys = [k for k in sys.modules if k == "sniptext" or k.startswith("sniptext.")]
+    for k in sniptext_keys:
+        monkeypatch.delitem(sys.modules, k)
 
     before = set(sys.modules)
     importlib.import_module("sniptext")

@@ -17,22 +17,21 @@ __all__ = [
     "ScreenCapture",
 ]
 
+_LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    "ScreenCapture": ("sniptext.capture", "ScreenCapture"),
+    "ClipboardManager": ("sniptext.clipboard", "ClipboardManager"),
+    "Config": ("sniptext.config", "Config"),
+    "OCREngine": ("sniptext.ocr", "OCREngine"),
+}
+
 
 def __getattr__(name: str):
+    if name not in _LAZY_IMPORTS:
+        raise AttributeError(f"module 'sniptext' has no attribute {name!r}")
+    import importlib
     import sys
 
-    _public = {
-        "ScreenCapture": ("sniptext.capture", "ScreenCapture"),
-        "ClipboardManager": ("sniptext.clipboard", "ClipboardManager"),
-        "Config": ("sniptext.config", "Config"),
-        "OCREngine": ("sniptext.ocr", "OCREngine"),
-    }
-    if name not in _public:
-        raise AttributeError(f"module 'sniptext' has no attribute {name!r}")
-    module_name, attr = _public[name]
-    import importlib
-
+    module_name, attr = _LAZY_IMPORTS[name]
     obj = getattr(importlib.import_module(module_name), attr)
-    # Cache in module namespace so subsequent accesses skip __getattr__
     setattr(sys.modules[__name__], name, obj)
     return obj
