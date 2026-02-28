@@ -6,7 +6,7 @@ from loguru import logger
 
 # Module-level frozensets for O(1) membership tests in _char_matches_lang.
 _LATIN_LANGS: frozenset[str] = frozenset(
-    [
+    (
         "eng",
         "en",
         "fra",
@@ -63,13 +63,13 @@ _LATIN_LANGS: frozenset[str] = frozenset(
         "sw",
         "lat",
         "la",
-    ]
+    )
 )
 _CYRILLIC_LANGS: frozenset[str] = frozenset(
-    ["rus", "ru", "bul", "bg", "ukr", "uk", "bel", "be", "mkd", "mk", "srp", "sr"]
+    ("rus", "ru", "bul", "bg", "ukr", "uk", "bel", "be", "mkd", "mk", "srp", "sr")
 )
-_ARABIC_LANGS: frozenset[str] = frozenset(["ara", "ar", "fas", "fa", "urd", "ur", "pus", "ps"])
-_DEVANAGARI_LANGS: frozenset[str] = frozenset(["hin", "hi", "san", "sa", "mar", "mr", "nep", "ne"])
+_ARABIC_LANGS: frozenset[str] = frozenset(("ara", "ar", "fas", "fa", "urd", "ur", "pus", "ps"))
+_DEVANAGARI_LANGS: frozenset[str] = frozenset(("hin", "hi", "san", "sa", "mar", "mr", "nep", "ne"))
 
 
 def detect_dominant_language(text: str, candidates: list[str]) -> str:
