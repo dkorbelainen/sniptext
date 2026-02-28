@@ -19,20 +19,20 @@ __all__ = [
 
 
 def __getattr__(name: str):
-    if name == "ScreenCapture":
-        from .capture import ScreenCapture
+    import sys
 
-        return ScreenCapture
-    if name == "ClipboardManager":
-        from .clipboard import ClipboardManager
+    _public = {
+        "ScreenCapture": ("sniptext.capture", "ScreenCapture"),
+        "ClipboardManager": ("sniptext.clipboard", "ClipboardManager"),
+        "Config": ("sniptext.config", "Config"),
+        "OCREngine": ("sniptext.ocr", "OCREngine"),
+    }
+    if name not in _public:
+        raise AttributeError(f"module 'sniptext' has no attribute {name!r}")
+    module_name, attr = _public[name]
+    import importlib
 
-        return ClipboardManager
-    if name == "Config":
-        from .config import Config
-
-        return Config
-    if name == "OCREngine":
-        from .ocr import OCREngine
-
-        return OCREngine
-    raise AttributeError(f"module 'sniptext' has no attribute {name!r}")
+    obj = getattr(importlib.import_module(module_name), attr)
+    # Cache in module namespace so subsequent accesses skip __getattr__
+    setattr(sys.modules[__name__], name, obj)
+    return obj

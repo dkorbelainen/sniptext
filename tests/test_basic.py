@@ -44,3 +44,24 @@ def test_imports():
     assert Config is not None
     assert OCREngine is not None
     assert ImageAnalyzer is not None
+
+
+def test_no_eager_heavy_imports():
+    """Regression: `import sniptext` must not load numpy/Pillow/pytesseract."""
+    import importlib
+    import sys
+
+    heavy = {"numpy", "PIL", "pytesseract", "easyocr", "sklearn"}
+
+    # Remove sniptext from sys.modules to force a fresh import
+    to_remove = [k for k in sys.modules if k == "sniptext" or k.startswith("sniptext.")]
+    for k in to_remove:
+        del sys.modules[k]
+
+    before = set(sys.modules)
+    importlib.import_module("sniptext")
+    after = set(sys.modules)
+
+    new_modules = after - before
+    loaded_heavy = {m for m in new_modules for h in heavy if m == h or m.startswith(h + ".")}
+    assert not loaded_heavy, f"Eager import of heavy deps detected: {loaded_heavy}"
