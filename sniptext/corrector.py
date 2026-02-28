@@ -320,7 +320,7 @@ class OCRCorrector:
                 clean_word.lower(), Verbosity.CLOSEST, max_edit_distance=max_edit_distance
             )
 
-            if suggestions and len(suggestions) > 0:
+            if suggestions:
                 suggestion = suggestions[0]
 
                 if suggestion.distance > 0 and suggestion.count > 10:
