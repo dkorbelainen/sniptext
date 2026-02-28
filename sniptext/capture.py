@@ -1,5 +1,6 @@
 """Screen capture functionality for SnipText."""
 
+import os
 import shutil
 import subprocess
 import tempfile
@@ -35,13 +36,7 @@ class ScreenCapture:
             return
 
         # Auto-detect
-        wayland_display = subprocess.run(
-            ["printenv", "WAYLAND_DISPLAY"],
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-
-        if wayland_display:
+        if os.environ.get("WAYLAND_DISPLAY"):
             self.display_server = "wayland"
             logger.info("Detected Wayland display server")
         else:

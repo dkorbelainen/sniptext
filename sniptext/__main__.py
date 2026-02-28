@@ -9,6 +9,7 @@ from pathlib import Path
 
 from loguru import logger
 
+from sniptext import __version__
 from sniptext.capture import ScreenCapture
 from sniptext.clipboard import ClipboardManager
 from sniptext.config import Config
@@ -30,6 +31,11 @@ def setup_logging(verbose: bool = False):
 def main():
     """Main application entry point."""
     parser = argparse.ArgumentParser(description="SnipText - OCR Screen Capture Utility")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"sniptext {__version__}",
+    )
     parser.add_argument(
         "-c",
         "--config",

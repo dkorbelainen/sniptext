@@ -1,5 +1,7 @@
 """Hotkey management for SnipText."""
 
+import os
+import subprocess
 import threading
 import time
 
@@ -72,8 +74,6 @@ class HotkeyManager:
     def start(self) -> None:
         """Start listening for hotkeys."""
         # Check for Wayland
-        import os
-
         session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()
         if session_type == "wayland":
             logger.warning("=" * 60)
@@ -249,8 +249,6 @@ class HotkeyManager:
             message: Notification message
         """
         try:
-            import subprocess
-
             result = subprocess.run(
                 ["notify-send", "SnipText", message],
                 timeout=2,
