@@ -4,57 +4,9 @@ import re
 
 from loguru import logger
 
-
-def detect_dominant_language(text: str, candidates: list[str]) -> str:
-    """
-    Detect the dominant language of *text* from a list of candidate language codes.
-
-    Uses Unicode script heuristics — no external library required.
-    Works for any language combination supported by Tesseract/EasyOCR.
-
-    Args:
-        text: OCR text to analyse.
-        candidates: Language codes to choose from (Tesseract or EasyOCR format).
-
-    Returns:
-        The best-matching language code from *candidates*.
-    """
-    if len(candidates) == 1:
-        return candidates[0]
-
-    letter_chars = [c for c in text if c.isalpha()]
-    if not letter_chars:
-        return candidates[0]
-
-    # Score each candidate by counting how many characters in *text* belong
-    # to the Unicode scripts associated with that language.
-    scores = {code: 0 for code in candidates}
-
-    for ch in letter_chars:
-        cp = ord(ch)
-        for code in candidates:
-            if _char_matches_lang(cp, code):
-                scores[code] += 1
-
-    best = max(scores, key=lambda c: scores[c])
-    # Only switch away from the first candidate if there is clear evidence
-    if scores[best] > 0:
-        if best != candidates[0]:
-            logger.debug(
-                f"Auto-detected language: {best!r} (scores: { {k: v for k, v in scores.items()} })"
-            )
-        return best
-
-    return candidates[0]
-
-
-def _char_matches_lang(cp: int, lang_code: str) -> bool:
-    """Return True if codepoint *cp* belongs to the script of *lang_code*."""
-    # Normalise to lower-case Tesseract-style code
-    code = lang_code.lower().strip()
-
-    # ── Latin-script languages ──────────────────────────────────────────────
-    _LATIN = (
+# Module-level frozensets for O(1) membership tests in _char_matches_lang.
+_LATIN_LANGS: frozenset[str] = frozenset(
+    (
         "eng",
         "en",
         "fra",
@@ -112,18 +64,72 @@ def _char_matches_lang(cp: int, lang_code: str) -> bool:
         "lat",
         "la",
     )
-    if code in _LATIN:
+)
+_CYRILLIC_LANGS: frozenset[str] = frozenset(
+    ("rus", "ru", "bul", "bg", "ukr", "uk", "bel", "be", "mkd", "mk", "srp", "sr")
+)
+_ARABIC_LANGS: frozenset[str] = frozenset(("ara", "ar", "fas", "fa", "urd", "ur", "pus", "ps"))
+_DEVANAGARI_LANGS: frozenset[str] = frozenset(("hin", "hi", "san", "sa", "mar", "mr", "nep", "ne"))
+
+
+def detect_dominant_language(text: str, candidates: list[str]) -> str:
+    """
+    Detect the dominant language of *text* from a list of candidate language codes.
+
+    Uses Unicode script heuristics — no external library required.
+    Works for any language combination supported by Tesseract/EasyOCR.
+
+    Args:
+        text: OCR text to analyse.
+        candidates: Language codes to choose from (Tesseract or EasyOCR format).
+
+    Returns:
+        The best-matching language code from *candidates*.
+    """
+    if len(candidates) == 1:
+        return candidates[0]
+
+    letter_chars = [c for c in text if c.isalpha()]
+    if not letter_chars:
+        return candidates[0]
+
+    # Score each candidate by counting how many characters in *text* belong
+    # to the Unicode scripts associated with that language.
+    scores = {code: 0 for code in candidates}
+
+    for ch in letter_chars:
+        cp = ord(ch)
+        for code in candidates:
+            if _char_matches_lang(cp, code):
+                scores[code] += 1
+
+    best = max(scores, key=lambda c: scores[c])
+    # Only switch away from the first candidate if there is clear evidence
+    if scores[best] > 0:
+        if best != candidates[0]:
+            logger.debug(
+                f"Auto-detected language: {best!r} (scores: { {k: v for k, v in scores.items()} })"
+            )
+        return best
+
+    return candidates[0]
+
+
+def _char_matches_lang(cp: int, lang_code: str) -> bool:
+    """Return True if codepoint *cp* belongs to the script of *lang_code*."""
+    code = lang_code.lower().strip()
+
+    # ── Latin-script languages ──────────────────────────────────────────────
+    if code in _LATIN_LANGS:
         # Basic Latin + Latin-1 Supplement + Latin Extended A/B
         return (0x0041 <= cp <= 0x007A) or (0x00C0 <= cp <= 0x024F)
 
     # ── Cyrillic-script languages ───────────────────────────────────────────
-    _CYRILLIC = ("rus", "ru", "bul", "bg", "ukr", "uk", "bel", "be", "mkd", "mk", "srp", "sr")
-    if code in _CYRILLIC:
+    if code in _CYRILLIC_LANGS:
         return 0x0400 <= cp <= 0x04FF
 
     # ── Arabic-script languages ─────────────────────────────────────────────
-    _ARABIC = ("ara", "ar", "fas", "fa", "urd", "ur", "pus", "ps")
-    if code in _ARABIC:
+    if code in _ARABIC_LANGS:
         return (0x0600 <= cp <= 0x06FF) or (0x0750 <= cp <= 0x077F)
 
     # ── CJK / Chinese ───────────────────────────────────────────────────────
@@ -155,7 +161,7 @@ def _char_matches_lang(cp: int, lang_code: str) -> bool:
         return 0x0E00 <= cp <= 0x0E7F
 
     # ── Devanagari (Hindi, Sanskrit, …) ─────────────────────────────────────
-    if code in ("hin", "hi", "san", "sa", "mar", "mr", "nep", "ne"):
+    if code in _DEVANAGARI_LANGS:
         return 0x0900 <= cp <= 0x097F
 
     # Unknown language code — never matches (fall back to first candidate)

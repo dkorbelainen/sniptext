@@ -254,12 +254,12 @@ class OCREngine:
         try:
             pil_image = self._prepare_image(image)
 
-            # Check if we should use adaptive strategy
             confidence_model = self._get_confidence_model()
             features = (
                 confidence_model.analyzer.extract_features(pil_image) if confidence_model else None
             )
 
+            text = ""
             if confidence_model and self.config.ocr_engine == "ensemble":
                 # Predict optimal strategy
                 strategy, confidence = confidence_model.predict_strategy(pil_image)
