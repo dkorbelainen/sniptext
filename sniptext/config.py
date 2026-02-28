@@ -51,7 +51,7 @@ class Config:
             config.save(config_path)
             return config
 
-        with open(config_path, "r") as f:
+        with open(config_path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
 
         # Remove all old/unused parameters
@@ -85,13 +85,10 @@ class Config:
         """Save configuration to YAML file."""
         config_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Convert all data to YAML-safe types
-        data = {}
-        for key, value in self.__dict__.items():
-            if isinstance(value, Path):
-                data[key] = str(value)
-            else:
-                data[key] = value
+        data = {
+            f.name: str(v) if isinstance(v := getattr(self, f.name), Path) else v
+            for f in dataclasses.fields(self)
+        }
 
-        with open(config_path, "w") as f:
+        with open(config_path, "w", encoding="utf-8") as f:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)
