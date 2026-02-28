@@ -73,11 +73,9 @@ def main():
     setup_logging(args.verbose)
     logger.info("Starting SnipText...")
 
-    # Load configuration
     config = Config.load(args.config)
     logger.info(f"Loaded configuration from {args.config}")
 
-    # List models if requested
     if args.list_models:
         logger.info("Available OCR models:")
         ocr = OCREngine(config)
@@ -85,12 +83,10 @@ def main():
             logger.info(f"  - {name}")
         return 0
 
-    # Override OCR engine if specified
     if args.ocr_engine:
         config.ocr_engine = args.ocr_engine
         logger.info(f"OCR engine overridden to: {args.ocr_engine}")
 
-    # Initialize components
     try:
         screen_capture = ScreenCapture(config)
         ocr_engine = OCREngine(config)
@@ -99,7 +95,6 @@ def main():
         logger.info("Components initialized successfully")
 
         if args.capture_now:
-            # Single capture mode
             logger.info("Capturing screen...")
             image = screen_capture.capture_region()
 
@@ -118,7 +113,6 @@ def main():
                 logger.error("Failed to capture screen")
                 return 1
         else:
-            # Hotkey daemon mode
             logger.info("Starting hotkey daemon...")
             hotkey_manager = HotkeyManager(
                 config=config,

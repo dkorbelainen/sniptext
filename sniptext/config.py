@@ -46,7 +46,6 @@ class Config:
     def load(cls, config_path: Path) -> "Config":
         """Load configuration from YAML file."""
         if not config_path.exists():
-            # Create default config
             config = cls()
             config.save(config_path)
             return config

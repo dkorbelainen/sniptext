@@ -53,7 +53,6 @@ class TesseractBackend(OCRBackend):
         if not self.is_available():
             raise RuntimeError("Tesseract not available")
 
-        # Analyze image and optimize
         enhanced_image = self._analyzer.enhance_for_ocr(image)
         psm_mode = self._analyzer.suggest_psm_mode(image)
 
@@ -192,7 +191,6 @@ class OCREngine:
         }
         self.backend = self._initialize_backend()
 
-        # Lazy initialization of confidence model (only created when first used)
         self.confidence_model = None
         self._confidence_enabled = (
             self.config.adaptive_ensemble and self.config.ocr_engine == "ensemble"
@@ -261,11 +259,9 @@ class OCREngine:
 
             text = ""
             if confidence_model and self.config.ocr_engine == "ensemble":
-                # Predict optimal strategy
                 strategy, confidence = confidence_model.predict_strategy(pil_image)
 
                 if strategy == "fast":
-                    # Use single fast backend
                     logger.debug(f"Using fast mode (confidence: {confidence:.2f})")
                     text = self.backend.recognize(pil_image)
                 else:
@@ -325,7 +321,6 @@ class OCREngine:
 
         results = []
 
-        # Collect results from all available backends
         for name, backend in self.backends.items():
             if backend.is_available():
                 try:
@@ -343,7 +338,6 @@ class OCREngine:
         if len(results) == 1:
             return results[0]
 
-        # Combine results using ensemble
         ensemble = EnsembleOCR()
         combined = ensemble.combine_results(results)
 
