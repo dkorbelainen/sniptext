@@ -85,6 +85,8 @@ class TestExtractFeatures:
         # Noise level should be noticeably higher for the noisy image
         assert noisy_features[6] > uniform_features[6] + 0.2
         assert noisy_features[6] > 0.3
+
+
 class TestSuggestPsmMode:
     def test_wide_short_image_returns_psm7(self, analyzer):
         # aspect ratio > 4 and height < 100

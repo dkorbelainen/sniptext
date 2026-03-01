@@ -14,6 +14,10 @@ from .analyzer import ImageAnalyzer
 # After this many new feedback samples, automatically retrain and save.
 _RETRAIN_EVERY = 20
 
+# Expected feature-vector length produced by ImageAnalyzer.extract_features().
+# Bump this when new features are added; stale models/feedback are discarded.
+_FEATURE_COUNT = 7
+
 
 class ConfidenceModel:
     """Model to predict OCR confidence and choose optimal strategy."""
@@ -280,6 +284,19 @@ class ConfidenceModel:
             logger.debug("Not enough samples to retrain")
             return
 
+        # Drop samples with a mismatched feature vector (written by an older version).
+        valid = [s for s in samples if len(s.get("features", [])) == _FEATURE_COUNT]
+        if len(valid) < len(samples):
+            logger.warning(
+                f"Dropped {len(samples) - len(valid)} stale feedback samples "
+                f"(expected {_FEATURE_COUNT} features)"
+            )
+        samples = valid
+
+        if len(samples) < 10:
+            logger.debug("Not enough valid samples to retrain after filtering")
+            return
+
         X = np.array([s["features"] for s in samples])
         y = np.array([s["label"] for s in samples])
 
@@ -305,8 +322,18 @@ class ConfidenceModel:
             try:
                 with open(self.model_path, "rb") as f:
                     data = pickle.load(f)
-                    self.model = data["model"]
-                    self.trained = True
+                    model = data["model"]
+                # Discard models trained on a different feature count to avoid
+                # shape-mismatch errors when the feature vector was extended.
+                actual = getattr(model, "n_features_in_", None)
+                if actual is not None and actual != _FEATURE_COUNT:
+                    logger.warning(
+                        f"Discarding stale model (trained on {actual} features, "
+                        f"current={_FEATURE_COUNT}). Will retrain."
+                    )
+                    return
+                self.model = model
+                self.trained = True
                 logger.info(f"Loaded confidence model from {self.model_path}")
             except Exception as e:
                 logger.warning(f"Failed to load model: {e}")

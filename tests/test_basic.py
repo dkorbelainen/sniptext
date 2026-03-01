@@ -32,7 +32,7 @@ def test_analyzer_features():
     # Extract features
     features = analyzer.extract_features(img)
 
-    assert len(features) == 5
+    assert len(features) == 7
     assert 0 <= features[0] <= 1  # brightness normalized
 
 
