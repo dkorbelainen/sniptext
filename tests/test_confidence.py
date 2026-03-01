@@ -18,29 +18,29 @@ def model_in_tmp(tmp_path):
 
 class TestRecordResult:
     def test_creates_feedback_file(self, model_in_tmp, tmp_path):
-        features = np.array([0.5, 0.5, 0.5, 0.0, 0.5])
+        features = np.array([0.5, 0.5, 0.5, 0.0, 0.5, 0.15, 0.05])
         model_in_tmp.record_result(features, "fast", True)
         assert model_in_tmp.feedback_path.exists()
 
     def test_appends_jsonl_line(self, model_in_tmp):
-        features = np.array([0.3, 0.4, 0.5, 0.0, 0.6])
+        features = np.array([0.3, 0.4, 0.5, 0.0, 0.6, 0.10, 0.08])
         model_in_tmp.record_result(features, "ensemble", False)
         lines = model_in_tmp.feedback_path.read_text().strip().splitlines()
         assert len(lines) == 1
         sample = json.loads(lines[0])
         assert sample["label"] == 1  # ensemble -> 1
         assert sample["success"] is False
-        assert len(sample["features"]) == 5
+        assert len(sample["features"]) == 7
 
     def test_fast_strategy_label_zero(self, model_in_tmp):
-        features = np.array([0.8, 0.7, 0.6, 0.0, 0.9])
+        features = np.array([0.8, 0.7, 0.6, 0.0, 0.9, 0.20, 0.03])
         model_in_tmp.record_result(features, "fast", True)
         lines = model_in_tmp.feedback_path.read_text().strip().splitlines()
         sample = json.loads(lines[0])
         assert sample["label"] == 0
 
     def test_multiple_calls_append(self, model_in_tmp):
-        features = np.array([0.5, 0.5, 0.5, 0.0, 0.5])
+        features = np.array([0.5, 0.5, 0.5, 0.0, 0.5, 0.15, 0.05])
         for _ in range(5):
             model_in_tmp.record_result(features, "fast", True)
         lines = model_in_tmp.feedback_path.read_text().strip().splitlines()
@@ -55,7 +55,7 @@ class TestPredictStrategyMLBranch:
     """
 
     # Borderline features: contrast=0.35, sharpness=0.30 → ML branch
-    _BORDERLINE = np.array([0.5, 0.35, 0.30, 0.0, 0.5])
+    _BORDERLINE = np.array([0.5, 0.35, 0.30, 0.0, 0.5, 0.15, 0.10])
 
     def _make_trained_model(self, tmp_path) -> ConfidenceModel:
         m = ConfidenceModel(model_path=tmp_path / "confidence_model.pkl")
@@ -108,7 +108,7 @@ class TestRetrainFromFeedback:
     def test_retrain_saves_model(self, model_in_tmp):
         """After _retrain_from_feedback with enough samples, model file appears."""
         rng = np.random.default_rng(42)
-        features = rng.random((25, 5))
+        features = rng.random((25, 7))
         model_in_tmp.feedback_path.parent.mkdir(parents=True, exist_ok=True)
         with open(model_in_tmp.feedback_path, "w") as f:
             for i, feat in enumerate(features):
@@ -127,7 +127,7 @@ class TestRetrainFromFeedback:
     def test_retrain_too_few_samples_no_crash(self, model_in_tmp):
         """Retraining with <10 samples must not crash."""
         model_in_tmp.feedback_path.parent.mkdir(parents=True, exist_ok=True)
-        features = np.array([0.5, 0.5, 0.5, 0.0, 0.5])
+        features = np.array([0.5, 0.5, 0.5, 0.0, 0.5, 0.15, 0.05])
         with open(model_in_tmp.feedback_path, "w") as f:
             sample = {"features": features.tolist(), "label": 0, "success": True}
             f.write(json.dumps(sample) + "\n")

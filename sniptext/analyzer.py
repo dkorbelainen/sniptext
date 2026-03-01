@@ -2,7 +2,7 @@
 
 import numpy as np
 from loguru import logger
-from PIL import Image, ImageEnhance, ImageOps, ImageStat
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps, ImageStat
 
 
 class ImageAnalyzer:
@@ -17,7 +17,8 @@ class ImageAnalyzer:
         Extract features from image for analysis.
 
         Returns:
-            Feature vector: [brightness, contrast, sharpness, has_color, size_ratio]
+            Feature vector: [brightness, contrast, sharpness, has_color,
+                             size_ratio, text_density, noise_level]
         """
         # Convert to RGB if needed
         if image.mode != "RGB":
@@ -39,6 +40,15 @@ class ImageAnalyzer:
             np.abs(np.diff(img_array, axis=0)).mean() + np.abs(np.diff(img_array, axis=1)).mean()
         )
         sharpness = laplacian
+
+        # Text density: fraction of dark (text-like) pixels using a fixed 128 threshold
+        text_density = float((img_array < 128).mean())
+
+        # Noise level: std of the high-frequency residual (original minus smoothed).
+        # Clean images have a small residual; noisy images have a large one.
+        smoothed = np.array(gray.filter(ImageFilter.SMOOTH), dtype=np.float32)
+        residual_std = float(np.std(img_array.astype(np.float32) - smoothed))
+        noise_level = min(residual_std / 30.0, 1.0)
 
         # Color presence
         r, g, b = stat.mean
@@ -63,12 +73,15 @@ class ImageAnalyzer:
                 normalized_sharpness,  # normalize to 0-1
                 has_color,  # binary
                 min(size_ratio, 5.0) / 5.0,  # cap at 5:1 ratio
+                text_density,  # fraction of dark pixels
+                noise_level,  # normalized residual std
             ]
         )
 
         logger.debug(
             f"Image features: brightness={brightness:.1f}, contrast={contrast:.1f}, "
-            f"sharpness={sharpness:.1f}, color={has_color}, ratio={size_ratio:.2f}"
+            f"sharpness={sharpness:.1f}, color={has_color}, ratio={size_ratio:.2f}, "
+            f"text_density={text_density:.3f}, noise={noise_level:.3f}"
         )
 
         return features
