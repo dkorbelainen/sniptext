@@ -1,12 +1,12 @@
 """Tests for ScreenCapture."""
 
 import os
+from typing import Optional
 from unittest.mock import patch
 
 import numpy as np
 import pytest
 from PIL import Image
-from typing import Optional
 
 from sniptext.capture import ScreenCapture
 from sniptext.config import Config
