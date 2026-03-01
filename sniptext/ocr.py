@@ -378,8 +378,16 @@ class OCREngine:
             pil_image = Image.fromarray(image)
 
         max_size = self.config.max_image_size
-        if max(pil_image.width, pil_image.height) > max_size:
-            pil_image.thumbnail((max_size, max_size), Image.LANCZOS)
-            logger.debug(f"Image resized to {pil_image.width}x{pil_image.height} (max_image_size={max_size})")
+        # Validate max_image_size to avoid Pillow errors with non-positive sizes
+        if isinstance(max_size, int) and max_size >= 1:
+            if max(pil_image.width, pil_image.height) > max_size:
+                pil_image.thumbnail((max_size, max_size), Image.LANCZOS)
+                logger.debug(
+                    f"Image resized to {pil_image.width}x{pil_image.height} (max_image_size={max_size})"
+                )
+        else:
+            logger.warning(
+                f"Invalid max_image_size={max_size!r} in config; expected positive integer. Skipping resizing."
+            )
 
         return pil_image
