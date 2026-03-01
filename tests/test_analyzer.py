@@ -20,10 +20,10 @@ def make_image(width, height, value=150, mode="RGB"):
 
 
 class TestExtractFeatures:
-    def test_returns_five_features(self, analyzer):
+    def test_returns_seven_features(self, analyzer):
         img = make_image(300, 100)
         features = analyzer.extract_features(img)
-        assert len(features) == 5
+        assert len(features) == 7
 
     def test_all_features_in_range(self, analyzer):
         img = make_image(300, 100)
@@ -44,13 +44,31 @@ class TestExtractFeatures:
     def test_grayscale_image(self, analyzer):
         img = make_image(300, 100, mode="L")
         features = analyzer.extract_features(img)
-        assert len(features) == 5
+        assert len(features) == 7
 
     def test_rgba_image(self, analyzer):
         arr = np.full((100, 300, 4), 150, dtype=np.uint8)
         img = Image.fromarray(arr, mode="RGBA")
         features = analyzer.extract_features(img)
-        assert len(features) == 5
+        assert len(features) == 7
+
+    def test_text_density_high_for_dark_image(self, analyzer):
+        """Mostly-dark image should have high text_density (many dark pixels)."""
+        img = make_image(300, 100, value=20)
+        features = analyzer.extract_features(img)
+        assert features[5] > 0.8  # text_density
+
+    def test_text_density_low_for_white_image(self, analyzer):
+        """Mostly-white image should have low text_density (few dark pixels)."""
+        img = make_image(300, 100, value=240)
+        features = analyzer.extract_features(img)
+        assert features[5] < 0.1  # text_density
+
+    def test_noise_level_low_for_uniform_image(self, analyzer):
+        """Solid-color image has no high-freq variation — noise should be near 0."""
+        img = make_image(300, 100, value=150)
+        features = analyzer.extract_features(img)
+        assert features[6] < 0.1  # noise_level
 
 
 class TestSuggestPsmMode:

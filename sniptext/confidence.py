@@ -49,13 +49,14 @@ class ConfidenceModel:
         logger.info("Initializing confidence model with baseline data")
 
         # Create synthetic training data based on known patterns
-        # Format: [brightness, contrast, sharpness, has_color, size_ratio]
+        # Format: [brightness, contrast, sharpness, has_color, size_ratio,
+        #          text_density, noise_level]
         X_train = []
         y_train = []
 
         # Easy cases (0 = use fast Tesseract only) - 60% of data
         for _ in range(60):
-            # High contrast, good brightness, sharp images
+            # High contrast, good brightness, sharp, low noise
             X_train.append(
                 [
                     np.random.uniform(0.5, 0.85),  # good brightness
@@ -63,6 +64,8 @@ class ConfidenceModel:
                     np.random.uniform(0.5, 1.0),  # sharp
                     np.random.randint(0, 2),  # color doesn't matter
                     np.random.uniform(0.2, 0.9),  # normal ratio
+                    np.random.uniform(0.05, 0.30),  # normal text density
+                    np.random.uniform(0.0, 0.15),  # low noise
                 ]
             )
             y_train.append(0)  # Fast mode
@@ -70,7 +73,7 @@ class ConfidenceModel:
         # Hard cases (1 = use ensemble) - 40% of data
         for _ in range(40):
             # Generate various difficult scenarios
-            scenario = np.random.choice(["low_contrast", "extreme_brightness", "blurry"])
+            scenario = np.random.choice(["low_contrast", "extreme_brightness", "blurry", "noisy"])
 
             if scenario == "low_contrast":
                 X_train.append(
@@ -80,6 +83,8 @@ class ConfidenceModel:
                         np.random.uniform(0.2, 0.6),  # moderate sharpness
                         np.random.randint(0, 2),
                         np.random.uniform(0.2, 0.9),
+                        np.random.uniform(0.01, 0.4),  # sparse or moderate text
+                        np.random.uniform(0.1, 0.5),  # moderate noise
                     ]
                 )
             elif scenario == "extreme_brightness":
@@ -92,9 +97,11 @@ class ConfidenceModel:
                         np.random.uniform(0.3, 0.7),
                         np.random.randint(0, 2),
                         np.random.uniform(0.2, 0.9),
+                        np.random.uniform(0.01, 0.5),
+                        np.random.uniform(0.05, 0.4),
                     ]
                 )
-            else:  # blurry
+            elif scenario == "blurry":
                 X_train.append(
                     [
                         np.random.uniform(0.3, 0.8),
@@ -102,6 +109,20 @@ class ConfidenceModel:
                         np.random.uniform(0.05, 0.3),  # low sharpness (key indicator)
                         np.random.randint(0, 2),
                         np.random.uniform(0.2, 0.9),
+                        np.random.uniform(0.01, 0.3),
+                        np.random.uniform(0.05, 0.35),
+                    ]
+                )
+            else:  # noisy
+                X_train.append(
+                    [
+                        np.random.uniform(0.3, 0.8),
+                        np.random.uniform(0.15, 0.45),
+                        np.random.uniform(0.2, 0.6),
+                        np.random.randint(0, 2),
+                        np.random.uniform(0.2, 0.9),
+                        np.random.uniform(0.01, 0.15),  # sparse text density
+                        np.random.uniform(0.35, 0.9),  # high noise (key indicator)
                     ]
                 )
 
@@ -120,7 +141,15 @@ class ConfidenceModel:
             self.model.fit(X_train, y_train)
             self.trained = True
 
-            feature_names = ["brightness", "contrast", "sharpness", "has_color", "size_ratio"]
+            feature_names = [
+                "brightness",
+                "contrast",
+                "sharpness",
+                "has_color",
+                "size_ratio",
+                "text_density",
+                "noise_level",
+            ]
             importances = self.model.feature_importances_
             logger.debug(f"Feature importances: {dict(zip(feature_names, importances))}")
 
