@@ -8,6 +8,45 @@ from loguru import logger
 from .corrector import OCRCorrector
 
 
+def _reflow(words: list[str], ref_lines: list[str]) -> list[str]:
+    """
+    Redistribute *words* into lines using *ref_lines* word-count proportions.
+
+    When the two engines split the same content at different points, the
+    merged word list needs to be broken back into lines.  We use the longer
+    (more granular) source as the template so paragraph structure is kept.
+    """
+    if not words:
+        return []
+    if len(ref_lines) <= 1:
+        return [" ".join(words)]
+
+    ref_counts = [len(line.split()) for line in ref_lines]
+    total_ref = sum(ref_counts) or 1
+    total = len(words)
+
+    result: list[str] = []
+    idx = 0
+    for i, ref_count in enumerate(ref_counts):
+        remaining = total - idx
+        # Preserve explicit blank lines from ref_lines (ref_count == 0)
+        if ref_count == 0:
+            chunk = ""
+        elif i == len(ref_counts) - 1:
+            # Last line: take all remaining words (may be zero)
+            chunk = " ".join(words[idx:])
+            idx = total
+        else:
+            # Allocate words proportionally, but not more than remaining
+            proportional = round(total * ref_count / total_ref)
+            n = min(remaining, max(1, proportional)) if remaining > 0 else 0
+            chunk = " ".join(words[idx : idx + n])
+            idx += n
+        # Append even empty chunks so that blank lines are preserved
+        result.append(chunk)
+    return result
+
+
 class EnsembleOCR:
     """Combine results from multiple OCR engines using voting."""
 
@@ -19,6 +58,10 @@ class EnsembleOCR:
         """
         Combine multiple OCR results using intelligent merging.
 
+        Aligns line sequences with SequenceMatcher so that differently-
+        segmented output from Tesseract and EasyOCR is handled correctly,
+        then resolves word-level disagreements within misaligned blocks.
+
         Args:
             results: List of OCR results from different engines
 
@@ -28,78 +71,94 @@ class EnsembleOCR:
         if not results:
             return ""
 
-        if len(results) == 1:
-            return results[0]
-
         results = [r for r in results if r.strip()]
 
         if not results:
             return ""
 
+        if len(results) == 1:
+            return results[0]
+
         logger.info(f"Combining {len(results)} OCR results")
 
-        # Split into lines, keep empty lines for structure
-        all_lines = [r.split("\n") for r in results]
-        max_lines = max(len(lines) for lines in all_lines)
+        # Sort by quality descending so the best result is always the base,
+        # making the output independent of the caller's backend ordering.
+        results = sorted(results, key=self._score_text, reverse=True)
 
-        combined_lines = []
+        merged = results[0]
+        for other in results[1:]:
+            merged = self._merge_two(merged, other)
+        return merged
 
-        for line_idx in range(max_lines):
-            line_variants = []
-            for lines in all_lines:
-                if line_idx < len(lines):
-                    line_variants.append(lines[line_idx])
+    def _merge_two(self, a: str, b: str) -> str:
+        """Merge two OCR results using line-level then word-level alignment."""
+        lines_a = a.splitlines()
+        lines_b = b.splitlines()
 
-            if not line_variants:
-                continue
+        matcher = SequenceMatcher(None, lines_a, lines_b, autojunk=False)
+        out: list[str] = []
 
-            best_line = self._pick_best_line(line_variants)
-            if best_line.strip():  # Only add non-empty lines
-                combined_lines.append(best_line)
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            if tag == "equal":
+                out.extend(lines_a[i1:i2])
+            elif tag == "replace":
+                out.extend(self._merge_word_level(lines_a[i1:i2], lines_b[j1:j2]))
+            elif tag == "delete":
+                out.extend(lines_a[i1:i2])
+            elif tag == "insert":
+                out.extend(lines_b[j1:j2])
 
-        return "\n".join(combined_lines)
+        return "\n".join(out)
 
-    def _pick_best_line(self, variants: list[str]) -> str:
-        """Pick best line variant using multiple heuristics."""
-        if len(variants) == 1:
-            return variants[0]
+    def _merge_word_level(self, lines_a: list[str], lines_b: list[str]) -> list[str]:
+        """
+        Resolve disagreements between two line blocks at word level.
 
-        stripped = [(v.strip(), v) for v in variants]
-        variants = [s[0] for s in stripped if s[0]]
+        Joins each block into a word sequence, aligns with SequenceMatcher,
+        and picks the better word segment for each differing region.
+        The result is reflowed back into lines using the longer block's
+        word-count proportions.
+        """
+        words_a = " ".join(lines_a).split()
+        words_b = " ".join(lines_b).split()
 
-        if not variants:
-            return ""
+        if not words_a:
+            return lines_b
+        if not words_b:
+            return lines_a
 
-        if len(variants) == 1:
-            return variants[0]
+        matcher = SequenceMatcher(None, words_a, words_b, autojunk=False)
+        merged: list[str] = []
 
-        scores = []
-        for v in variants:
-            score = 0
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            if tag == "equal":
+                merged.extend(words_a[i1:i2])
+            elif tag == "replace":
+                seg_a, seg_b = words_a[i1:i2], words_b[j1:j2]
+                chosen = seg_a if self._score_words(seg_a) >= self._score_words(seg_b) else seg_b
+                merged.extend(chosen)
+            elif tag == "delete":
+                merged.extend(words_a[i1:i2])
+            elif tag == "insert":
+                merged.extend(words_b[j1:j2])
 
-            # Length score (longer is usually more complete)
-            score += len(v) * 0.1
+        ref = lines_a if len(lines_a) >= len(lines_b) else lines_b
+        return _reflow(merged, ref)
 
-            # Punctuation score (proper sentences end with punctuation)
-            if v.endswith((".", "!", "?", ":", ",")):
-                score += 10
+    def _score_words(self, words: list[str]) -> float:
+        """Score a word sequence: prefer high alphanumeric ratio and completeness."""
+        if not words:
+            return 0.0
+        text = " ".join(words)
+        alnum = sum(c.isalnum() for c in text)
+        return (alnum / len(text)) * 10 + len(text) * 0.01
 
-            # Cyrillic letter score (prefer proper Russian text)
-            cyrillic_count = sum(1 for c in v if "а" <= c <= "я" or "А" <= c <= "Я")
-            score += cyrillic_count * 0.2
-
-            # Penalize likely misread characters at start of line.
-            # Only penalize if both variants exist and one clearly looks like
-            # a misread: e.g. lowercase 'l' where a digit '1' is expected is
-            # handled by the letter-ratio score already.
-            # Removed: digit penalty (broke numbered lists) and single capital
-            # letter penalty (broke sentences starting with "I", "A", etc.)
-
-            scores.append((score, v))
-
-        best = max(scores, key=lambda x: x[0])
-        logger.debug(f"Selected variant (score {best[0]:.1f}): {best[1][:50]}...")
-        return best[1]
+    def _score_text(self, text: str) -> float:
+        """Score a full OCR result for use as a sort key (higher = better base)."""
+        if not text:
+            return 0.0
+        alnum = sum(c.isalnum() for c in text)
+        return (alnum / len(text)) * 10 + len(text) * 0.01
 
     def calculate_confidence(self, results: list[str]) -> float:
         """
