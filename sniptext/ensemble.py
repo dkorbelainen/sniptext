@@ -73,6 +73,10 @@ class EnsembleOCR:
 
         logger.info(f"Combining {len(results)} OCR results")
 
+        # Sort by quality descending so the best result is always the base,
+        # making the output independent of the caller's backend ordering.
+        results = sorted(results, key=self._score_text, reverse=True)
+
         merged = results[0]
         for other in results[1:]:
             merged = self._merge_two(merged, other)
@@ -138,6 +142,13 @@ class EnsembleOCR:
         if not words:
             return 0.0
         text = " ".join(words)
+        alnum = sum(c.isalnum() for c in text)
+        return (alnum / len(text)) * 10 + len(text) * 0.01
+
+    def _score_text(self, text: str) -> float:
+        """Score a full OCR result for use as a sort key (higher = better base)."""
+        if not text:
+            return 0.0
         alnum = sum(c.isalnum() for c in text)
         return (alnum / len(text)) * 10 + len(text) * 0.01
 

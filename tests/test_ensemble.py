@@ -130,3 +130,11 @@ class TestMergeAlignment:
         r_b = "first line\nsecond line\nthird line"
         result = ensemble.combine_results([r_a, r_b])
         assert "third line" in result
+
+    def test_merge_order_independent(self, ensemble):
+        """Output must be identical regardless of which engine's result comes first."""
+        clean = "The quick brown fox"
+        noisy = "The |quick| brown fox"
+        result_ab = ensemble.combine_results([clean, noisy])
+        result_ba = ensemble.combine_results([noisy, clean])
+        assert result_ab == result_ba
