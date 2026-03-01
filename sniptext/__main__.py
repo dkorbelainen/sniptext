@@ -87,14 +87,13 @@ def main():
         config.ocr_engine = args.ocr_engine
         logger.info(f"OCR engine overridden to: {args.ocr_engine}")
 
+    hotkey_manager = None
     try:
         screen_capture = ScreenCapture(config)
         ocr_engine = OCREngine(config)
         clipboard_manager = ClipboardManager()
 
         logger.info("Components initialized successfully")
-
-        hotkey_manager = None
 
         if args.capture_now:
             logger.info("Capturing screen...")
