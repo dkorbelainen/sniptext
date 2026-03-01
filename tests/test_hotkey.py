@@ -181,3 +181,30 @@ class TestShowNotification:
             mgr._on_hotkey_triggered()
 
         mock_notify.assert_not_called()
+
+
+class TestWaylandDetection:
+    def test_wayland_detected_via_wayland_display(self):
+        mgr = _make_manager()
+        with patch.dict("os.environ", {"WAYLAND_DISPLAY": "wayland-0"}):
+            with patch("pynput.keyboard.Listener") as mock_listener:
+                mock_listener.return_value.__enter__ = MagicMock(return_value=MagicMock())
+                mock_listener.return_value.__exit__ = MagicMock(return_value=False)
+                mock_listener.return_value.join = MagicMock(side_effect=KeyboardInterrupt)
+                try:
+                    mgr.start()
+                except KeyboardInterrupt:
+                    pass
+
+    def test_no_warning_without_wayland_display(self):
+        mgr = _make_manager()
+        env = {k: v for k, v in __import__("os").environ.items() if k != "WAYLAND_DISPLAY"}
+        with patch.dict("os.environ", env, clear=True):
+            with patch("pynput.keyboard.Listener") as mock_listener:
+                mock_listener.return_value.__enter__ = MagicMock(return_value=MagicMock())
+                mock_listener.return_value.__exit__ = MagicMock(return_value=False)
+                mock_listener.return_value.join = MagicMock(side_effect=KeyboardInterrupt)
+                try:
+                    mgr.start()
+                except KeyboardInterrupt:
+                    pass

@@ -13,6 +13,7 @@ class ClipboardManager:
 
     def __init__(self):
         """Initialize clipboard manager."""
+        self._wl_process: Optional[subprocess.Popen] = None
         self._detect_clipboard_tool()
 
     def _detect_clipboard_tool(self) -> None:
@@ -48,6 +49,13 @@ class ClipboardManager:
         """
         try:
             if self.tool == "wayland":
+                # Kill the previous wl-copy process before spawning a new one;
+                # wl-copy stays alive to serve the clipboard selection and
+                # repeated copies would otherwise accumulate orphaned processes.
+                if self._wl_process is not None and self._wl_process.poll() is None:
+                    self._wl_process.terminate()
+                    self._wl_process = None
+
                 # wl-copy stays running (serves clipboard) until the content
                 # is replaced; we must NOT use communicate() here or we'd
                 # block until the user pastes.
@@ -75,6 +83,7 @@ class ClipboardManager:
                     logger.error(f"Failed to start wl-copy: {stderr}")
                     return False
 
+                self._wl_process = process
                 logger.debug(
                     f"Copied {len(text)} characters to clipboard (wl-copy pid: {process.pid})"
                 )
