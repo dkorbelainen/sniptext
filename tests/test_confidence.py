@@ -178,7 +178,10 @@ class TestSaveLoadModel:
         """A model trained on a different feature count must not be loaded."""
         import pickle
 
-        from sklearn.ensemble import GradientBoostingClassifier
+        try:
+            from sklearn.ensemble import GradientBoostingClassifier
+        except ImportError:
+            pytest.skip("sklearn not installed")
 
         from sniptext.confidence import _FEATURE_COUNT
 
