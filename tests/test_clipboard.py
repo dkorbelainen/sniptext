@@ -104,6 +104,18 @@ class TestCopy:
             with patch("sniptext.clipboard.time.sleep"):
                 assert mgr.copy("hello") is False
 
+    def test_wayland_copy_returns_false_when_process_exits_with_zero(self):
+        # Any early exit (even rc=0) means the selection won't be served.
+        mgr = _make_manager({"wl-copy": "/usr/bin/wl-copy"})
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = 0
+        mock_proc.returncode = 0
+        mock_proc.stdin = MagicMock()
+        mock_proc.stderr.read.return_value = b""
+        with patch("sniptext.clipboard.subprocess.Popen", return_value=mock_proc):
+            with patch("sniptext.clipboard.time.sleep"):
+                assert mgr.copy("hello") is False
+
 
 class TestPaste:
     def test_x11_paste_returns_text(self):

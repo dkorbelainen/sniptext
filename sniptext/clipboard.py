@@ -77,10 +77,13 @@ class ClipboardManager:
                 # Give compositor a moment to register the new selection
                 time.sleep(0.05)
 
-                # Check if it started successfully (it should still be running)
-                if process.poll() is not None and process.returncode != 0:
+                # Check if it started successfully — wl-copy must still be
+                # running to keep the Wayland clipboard selection alive.
+                # Any early exit (even with returncode 0) means the selection
+                # won't be served.
+                if process.poll() is not None:
                     stderr = process.stderr.read().decode(errors="replace")
-                    logger.error(f"Failed to start wl-copy: {stderr}")
+                    logger.error(f"wl-copy exited unexpectedly (rc={process.returncode}): {stderr}")
                     return False
 
                 self._wl_process = process

@@ -188,9 +188,10 @@ class TestWaylandDetection:
         mgr = _make_manager()
         with patch.dict("os.environ", {"WAYLAND_DISPLAY": "wayland-0"}):
             with patch("pynput.keyboard.Listener") as mock_listener:
-                mock_listener.return_value.__enter__ = MagicMock(return_value=MagicMock())
+                listener_instance = MagicMock()
+                listener_instance.join.side_effect = KeyboardInterrupt
+                mock_listener.return_value.__enter__ = MagicMock(return_value=listener_instance)
                 mock_listener.return_value.__exit__ = MagicMock(return_value=False)
-                mock_listener.return_value.join = MagicMock(side_effect=KeyboardInterrupt)
                 try:
                     mgr.start()
                 except KeyboardInterrupt:
@@ -201,9 +202,10 @@ class TestWaylandDetection:
         env = {k: v for k, v in __import__("os").environ.items() if k != "WAYLAND_DISPLAY"}
         with patch.dict("os.environ", env, clear=True):
             with patch("pynput.keyboard.Listener") as mock_listener:
-                mock_listener.return_value.__enter__ = MagicMock(return_value=MagicMock())
+                listener_instance = MagicMock()
+                listener_instance.join.side_effect = KeyboardInterrupt
+                mock_listener.return_value.__enter__ = MagicMock(return_value=listener_instance)
                 mock_listener.return_value.__exit__ = MagicMock(return_value=False)
-                mock_listener.return_value.join = MagicMock(side_effect=KeyboardInterrupt)
                 try:
                     mgr.start()
                 except KeyboardInterrupt:
