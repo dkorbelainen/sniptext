@@ -239,6 +239,12 @@ class ConfidenceModel:
         """
         label = 0 if strategy == "fast" else 1
 
+        if len(features) != _FEATURE_COUNT:
+            logger.warning(
+                f"Skipping feedback: expected {_FEATURE_COUNT} features, got {len(features)}"
+            )
+            return
+
         sample = {
             "features": features.tolist(),
             "label": label,
@@ -302,7 +308,6 @@ class ConfidenceModel:
 
         try:
             from sklearn.ensemble import GradientBoostingClassifier
-            from sklearn.model_selection import cross_val_score
 
             new_model = GradientBoostingClassifier(
                 n_estimators=50, max_depth=3, learning_rate=0.1, random_state=42

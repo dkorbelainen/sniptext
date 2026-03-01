@@ -162,7 +162,8 @@ class ImageAnalyzer:
 
         features = self.extract_features(image)
         brightness = features[0] * 255
-        contrast = features[1] * 128
+        # features[1] = min(original_contrast / 60.0, 1.0), so reverse with * 60
+        contrast = features[1] * 60
 
         # Invert if dark background (reuse already-computed brightness)
         inverted = False
