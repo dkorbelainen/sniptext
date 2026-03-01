@@ -163,19 +163,23 @@ class HotkeyManager:
             ctrl_mods = {keyboard.Key.ctrl_l, keyboard.Key.ctrl_r}
             shift_mods = {keyboard.Key.shift_l, keyboard.Key.shift_r}
             alt_mods = {keyboard.Key.alt_l, keyboard.Key.alt_r}
+            super_mods = {keyboard.Key.cmd}
 
             needs_ctrl = bool(self.modifiers & ctrl_mods)
             needs_shift = bool(self.modifiers & shift_mods)
             needs_alt = bool(self.modifiers & alt_mods)
+            needs_super = bool(self.modifiers & super_mods)
 
             has_ctrl = bool(current_keys & ctrl_mods)
             has_shift = bool(current_keys & shift_mods)
             has_alt = bool(current_keys & alt_mods)
+            has_super = bool(current_keys & super_mods)
 
             modifiers_ok = (
                 (not needs_ctrl or has_ctrl)
                 and (not needs_shift or has_shift)
                 and (not needs_alt or has_alt)
+                and (not needs_super or has_super)
             )
         else:
             modifiers_ok = True

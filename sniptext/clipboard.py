@@ -2,6 +2,7 @@
 
 import shutil
 import subprocess
+import time
 from typing import Optional
 
 from loguru import logger
@@ -66,8 +67,6 @@ class ClipboardManager:
                     return False
 
                 # Give compositor a moment to register the new selection
-                import time
-
                 time.sleep(0.05)
 
                 # Check if it started successfully (it should still be running)
