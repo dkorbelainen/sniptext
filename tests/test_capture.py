@@ -1,8 +1,9 @@
 """Tests for ScreenCapture."""
 
 import os
+import subprocess
 from typing import Optional
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -116,15 +117,11 @@ class TestCaptureToFile:
         return cap
 
     def _run_ok(self):
-        from unittest.mock import MagicMock
-
         m = MagicMock()
         m.returncode = 0
         return m
 
     def _run_fail(self):
-        from unittest.mock import MagicMock
-
         m = MagicMock()
         m.returncode = 1
         return m
@@ -176,8 +173,6 @@ class TestCaptureToFile:
             assert cap._capture_to_file(tmp_path / "out.png") is False
 
     def test_timeout_returns_false(self, tmp_path):
-        import subprocess
-
         cap = self._cap("maim", "maim")
         with patch(
             "sniptext.capture.subprocess.run", side_effect=subprocess.TimeoutExpired("maim", 60)
