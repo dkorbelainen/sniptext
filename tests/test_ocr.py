@@ -60,7 +60,6 @@ class TestPrepareImage:
         assert original.width == 200
         assert original.height == 200
 
-
     def test_returns_list(self):
         engine = OCREngine(Config())
         backends = engine.get_available_backends()
