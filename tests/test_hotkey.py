@@ -187,26 +187,32 @@ class TestWaylandDetection:
     def test_wayland_detected_via_wayland_display(self):
         mgr = _make_manager()
         with patch.dict("os.environ", {"WAYLAND_DISPLAY": "wayland-0"}):
-            with patch("pynput.keyboard.Listener") as mock_listener:
-                listener_instance = MagicMock()
-                listener_instance.join.side_effect = KeyboardInterrupt
-                mock_listener.return_value.__enter__ = MagicMock(return_value=listener_instance)
-                mock_listener.return_value.__exit__ = MagicMock(return_value=False)
-                try:
-                    mgr.start()
-                except KeyboardInterrupt:
-                    pass
+            with patch("sniptext.hotkey.logger.warning") as mock_warning:
+                with patch("pynput.keyboard.Listener") as mock_listener:
+                    listener_instance = MagicMock()
+                    listener_instance.join.side_effect = KeyboardInterrupt
+                    mock_listener.return_value.__enter__ = MagicMock(return_value=listener_instance)
+                    mock_listener.return_value.__exit__ = MagicMock(return_value=False)
+                    try:
+                        mgr.start()
+                    except KeyboardInterrupt:
+                        pass
+        mock_listener.assert_called()
+        mock_warning.assert_called()
 
     def test_no_warning_without_wayland_display(self):
         mgr = _make_manager()
         env = {k: v for k, v in __import__("os").environ.items() if k != "WAYLAND_DISPLAY"}
         with patch.dict("os.environ", env, clear=True):
-            with patch("pynput.keyboard.Listener") as mock_listener:
-                listener_instance = MagicMock()
-                listener_instance.join.side_effect = KeyboardInterrupt
-                mock_listener.return_value.__enter__ = MagicMock(return_value=listener_instance)
-                mock_listener.return_value.__exit__ = MagicMock(return_value=False)
-                try:
-                    mgr.start()
-                except KeyboardInterrupt:
-                    pass
+            with patch("sniptext.hotkey.logger.warning") as mock_warning:
+                with patch("pynput.keyboard.Listener") as mock_listener:
+                    listener_instance = MagicMock()
+                    listener_instance.join.side_effect = KeyboardInterrupt
+                    mock_listener.return_value.__enter__ = MagicMock(return_value=listener_instance)
+                    mock_listener.return_value.__exit__ = MagicMock(return_value=False)
+                    try:
+                        mgr.start()
+                    except KeyboardInterrupt:
+                        pass
+        mock_listener.assert_called()
+        mock_warning.assert_not_called()
