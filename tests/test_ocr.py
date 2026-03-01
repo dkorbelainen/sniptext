@@ -37,6 +37,21 @@ class TestPrepareImage:
         assert isinstance(result, Image.Image)
         assert result.mode == "RGBA"
 
+    def test_max_image_size_respected(self):
+        config = Config(max_image_size=64)
+        engine = OCREngine(config)
+        arr = np.zeros((200, 300, 3), dtype=np.uint8)
+        result = engine._prepare_image(arr)
+        assert max(result.width, result.height) <= 64
+
+    def test_small_image_not_resized(self):
+        config = Config(max_image_size=4096)
+        engine = OCREngine(config)
+        arr = np.zeros((100, 100, 3), dtype=np.uint8)
+        result = engine._prepare_image(arr)
+        assert result.width == 100
+        assert result.height == 100
+
 
 class TestGetAvailableBackends:
     def test_returns_list(self):

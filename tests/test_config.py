@@ -9,6 +9,12 @@ class TestConfigDefaults:
     def test_hotkey(self):
         assert Config().hotkey == "<ctrl>+<alt>+t"
 
+    def test_max_image_size_default(self):
+        assert Config().max_image_size == 4096
+
+    def test_use_gpu_default(self):
+        assert Config().use_gpu is True
+
     def test_ocr_language(self):
         assert Config().ocr_language == "eng"
 
