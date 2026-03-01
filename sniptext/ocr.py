@@ -351,18 +351,18 @@ class OCREngine:
 
         return combined
 
-    def _prepare_image(self, image: np.ndarray) -> Image.Image:
+    def _prepare_image(self, image: "np.ndarray | Image.Image") -> Image.Image:
         """
-        Convert numpy array to PIL Image.
+        Convert image to PIL Image, resizing if it exceeds max_image_size.
 
         Args:
-            image: Numpy array image
+            image: Input image as a numpy array or PIL Image
 
         Returns:
             PIL Image
         """
         if isinstance(image, Image.Image):
-            pil_image = image
+            pil_image = image.copy()
         elif len(image.shape) == 2:
             pil_image = Image.fromarray(image, mode="L")
         elif len(image.shape) == 3:

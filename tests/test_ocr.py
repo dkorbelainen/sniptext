@@ -52,8 +52,15 @@ class TestPrepareImage:
         assert result.width == 100
         assert result.height == 100
 
+    def test_pil_image_not_mutated_on_resize(self):
+        config = Config(max_image_size=64)
+        engine = OCREngine(config)
+        original = Image.fromarray(np.zeros((200, 200, 3), dtype=np.uint8))
+        engine._prepare_image(original)
+        assert original.width == 200
+        assert original.height == 200
 
-class TestGetAvailableBackends:
+
     def test_returns_list(self):
         engine = OCREngine(Config())
         backends = engine.get_available_backends()
