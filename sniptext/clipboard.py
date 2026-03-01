@@ -53,8 +53,28 @@ class ClipboardManager:
                 # wl-copy stays alive to serve the clipboard selection and
                 # repeated copies would otherwise accumulate orphaned processes.
                 if self._wl_process is not None and self._wl_process.poll() is None:
-                    self._wl_process.terminate()
-                    self._wl_process = None
+                    try:
+                        self._wl_process.terminate()
+                        try:
+                            # Wait for the process to exit to avoid zombies
+                            self._wl_process.wait(timeout=1.0)
+                        except subprocess.TimeoutExpired:
+                            logger.warning(
+                                "Previous wl-copy process did not exit in time; killing it."
+                            )
+                            self._wl_process.kill()
+                            try:
+                                self._wl_process.wait(timeout=1.0)
+                            except subprocess.TimeoutExpired:
+                                logger.error(
+                                    "Previous wl-copy process could not be killed promptly."
+                                )
+                    except Exception as e:
+                        logger.warning(
+                            f"Error while terminating previous wl-copy process: {e}"
+                        )
+                    finally:
+                        self._wl_process = None
 
                 # wl-copy stays running (serves clipboard) until the content
                 # is replaced; we must NOT use communicate() here or we'd
