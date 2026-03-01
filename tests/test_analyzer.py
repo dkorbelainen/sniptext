@@ -143,3 +143,25 @@ class TestEnhanceForOcr:
 
         brightness = np.array(result).mean()
         assert brightness < 240, f"Over-brightened: {brightness:.1f}"
+
+    def test_low_contrast_image_gets_enhanced(self, analyzer):
+        """A low-contrast image (stddev ≈ 20) must trigger contrast enhancement."""
+        # Build a grayscale image with small intensity variations so that the
+        # contrast is low but non-zero, and verify that enhancement increases it.
+        width, height = 400, 200
+        base = 150
+        data = np.full((height, width), base, dtype=np.uint8)
+        # Introduce a subtle checkerboard-like pattern around the base value.
+        data[:, ::2] = base - 10  # 140
+        data[:, 1::2] = base + 10  # 160
+        img = Image.fromarray(data, mode="L")
+
+        input_std = np.array(img).std()
+        assert input_std > 0
+
+        result = analyzer.enhance_for_ocr(img)
+        # Post-enhancement the result is still a valid PIL image.
+        assert isinstance(result, Image.Image)
+
+        output_std = np.array(result.convert("L")).std()
+        assert output_std > input_std
