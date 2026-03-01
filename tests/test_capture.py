@@ -6,12 +6,13 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 from PIL import Image
+from typing import Optional
 
 from sniptext.capture import ScreenCapture
 from sniptext.config import Config
 
 
-def _make_capture(which_map: dict, config: Config | None = None, env: dict | None = None):
+def _make_capture(which_map: dict, config: Optional[Config] = None, env: Optional[dict] = None):
     """Return a ScreenCapture with shutil.which and os.environ stubbed."""
     cfg = config or Config()
     env = env or {}
