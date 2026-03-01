@@ -86,6 +86,18 @@ class TestIsHotkeyPressed:
         keys = {keyboard.Key.ctrl_l, keyboard.Key.alt_l, "t", keyboard.Key.shift_l}
         assert mgr._is_hotkey_pressed(keys) is True
 
+    def test_super_required_when_configured(self):
+        mgr = _make_manager("<super>+s")
+        keys_without_super = {"s"}
+        assert mgr._is_hotkey_pressed(keys_without_super) is False
+
+    def test_super_combo_matches_when_pressed(self):
+        from pynput import keyboard
+
+        mgr = _make_manager("<super>+s")
+        keys = {keyboard.Key.cmd, "s"}
+        assert mgr._is_hotkey_pressed(keys) is True
+
 
 class TestOnHotkeyTriggered:
     def test_calls_capture_ocr_clipboard_in_order(self):
