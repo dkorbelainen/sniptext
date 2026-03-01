@@ -28,14 +28,22 @@ def _reflow(words: list[str], ref_lines: list[str]) -> list[str]:
     result: list[str] = []
     idx = 0
     for i, ref_count in enumerate(ref_counts):
-        if i == len(ref_counts) - 1:
+        remaining = total - idx
+        # Preserve explicit blank lines from ref_lines (ref_count == 0)
+        if ref_count == 0:
+            chunk = ""
+        elif i == len(ref_counts) - 1:
+            # Last line: take all remaining words (may be zero)
             chunk = " ".join(words[idx:])
+            idx = total
         else:
-            n = max(1, round(total * ref_count / total_ref))
+            # Allocate words proportionally, but not more than remaining
+            proportional = round(total * ref_count / total_ref)
+            n = min(remaining, max(1, proportional)) if remaining > 0 else 0
             chunk = " ".join(words[idx : idx + n])
             idx += n
-        if chunk:
-            result.append(chunk)
+        # Append even empty chunks so that blank lines are preserved
+        result.append(chunk)
     return result
 
 
