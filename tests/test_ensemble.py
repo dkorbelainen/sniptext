@@ -94,3 +94,39 @@ class TestPostProcessText:
         results = ["I went home", "I went home"]
         result = ensemble.combine_results(results)
         assert result.startswith("I")
+
+
+class TestMergeAlignment:
+    """Tests for the new SequenceMatcher-based alignment logic."""
+
+    def test_different_line_counts_preserves_all_words(self, ensemble):
+        """Tesseract splits one long line; EasyOCR keeps it as one. All words must appear."""
+        r_tesseract = "Hello world this\nis a test sentence"
+        r_easyocr = "Hello world this is a test sentence"
+        result = ensemble.combine_results([r_tesseract, r_easyocr])
+        for word in ["Hello", "world", "this", "is", "a", "test", "sentence"]:
+            assert word in result
+
+    def test_ocr_error_in_one_engine_is_corrected(self, ensemble):
+        """When one engine produces garbage chars, the cleaner segment wins."""
+        # "|OCR|" has lower alnum ratio than "OCR" → clean segment is chosen
+        good = "The OCR result is correct"
+        bad = "The |OCR| result is correct"
+        result = ensemble.combine_results([bad, good])
+        assert "|" not in result
+
+    def test_three_engines_pairwise_merge(self, ensemble):
+        """Three results are merged pairwise; shared content must survive."""
+        r1 = "line one\nline two"
+        r2 = "line one\nline two"
+        r3 = "line one\nline two"
+        result = ensemble.combine_results([r1, r2, r3])
+        assert "line one" in result
+        assert "line two" in result
+
+    def test_extra_line_in_one_engine_kept(self, ensemble):
+        """A line present in one engine but absent in the other (insert) is preserved."""
+        r_a = "first line\nsecond line"
+        r_b = "first line\nsecond line\nthird line"
+        result = ensemble.combine_results([r_a, r_b])
+        assert "third line" in result
