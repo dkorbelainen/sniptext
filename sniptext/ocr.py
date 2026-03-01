@@ -111,7 +111,13 @@ class EasyOCRBackend(OCRBackend):
             logger.info(f"Initializing EasyOCR with languages: {langs}")
             logger.info("First run will download models (~100-500MB)...")
 
-            self._reader = easyocr.Reader(langs, gpu=self.config.use_gpu, verbose=False)
+            model_storage = str(self.config.ocr_model_path) if self.config.ocr_model_path else None
+            self._reader = easyocr.Reader(
+                langs,
+                gpu=self.config.use_gpu,
+                model_storage_directory=model_storage,
+                verbose=False,
+            )
 
             self._initialized = True
             logger.info("EasyOCR initialized")
@@ -345,26 +351,43 @@ class OCREngine:
 
         return combined
 
-    def _prepare_image(self, image: np.ndarray) -> Image.Image:
+    def _prepare_image(self, image: "np.ndarray | Image.Image") -> Image.Image:
         """
-        Convert numpy array to PIL Image.
+        Convert image to PIL Image, resizing if it exceeds max_image_size.
 
         Args:
-            image: Numpy array image
+            image: Input image as a numpy array or PIL Image
 
         Returns:
             PIL Image
         """
         if isinstance(image, Image.Image):
-            return image
-
-        if len(image.shape) == 2:
-            return Image.fromarray(image, mode="L")
+            pil_image = image.copy()
+        elif len(image.shape) == 2:
+            pil_image = Image.fromarray(image, mode="L")
         elif len(image.shape) == 3:
             if image.shape[2] == 3:
-                return Image.fromarray(image, mode="RGB")
+                pil_image = Image.fromarray(image, mode="RGB")
             elif image.shape[2] == 4:
-                return Image.fromarray(image, mode="RGBA")
+                pil_image = Image.fromarray(image, mode="RGBA")
+            else:
+                logger.warning(f"Unexpected image shape: {image.shape}")
+                pil_image = Image.fromarray(image)
+        else:
+            logger.warning(f"Unexpected image shape: {image.shape}")
+            pil_image = Image.fromarray(image)
 
-        logger.warning(f"Unexpected image shape: {image.shape}")
-        return Image.fromarray(image)
+        max_size = self.config.max_image_size
+        # Validate max_image_size to avoid Pillow errors with non-positive sizes
+        if isinstance(max_size, int) and max_size >= 1:
+            if max(pil_image.width, pil_image.height) > max_size:
+                pil_image.thumbnail((max_size, max_size), Image.LANCZOS)
+                logger.debug(
+                    f"Image resized to {pil_image.width}x{pil_image.height} (max_image_size={max_size})"
+                )
+        else:
+            logger.warning(
+                f"Invalid max_image_size={max_size!r} in config; expected positive integer. Skipping resizing."
+            )
+
+        return pil_image
