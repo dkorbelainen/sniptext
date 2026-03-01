@@ -50,8 +50,8 @@ class TestRecordResult:
 class TestPredictStrategyMLBranch:
     """Tests for the trained-model branch inside predict_strategy().
 
-    The ML path is taken when contrast is in (0.2, 0.5] AND sharpness is in
-    (0.2, 0.4] — values that don't match either heuristic shortcut.
+    The ML path is taken when contrast is in [0.2, 0.5] AND sharpness is in
+    [0.2, 0.4] — values that don't match either heuristic shortcut.
     """
 
     # Borderline features: contrast=0.35, sharpness=0.30 → ML branch
