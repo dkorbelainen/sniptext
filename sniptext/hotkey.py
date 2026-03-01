@@ -72,8 +72,11 @@ class HotkeyManager:
 
     def start(self) -> None:
         """Start listening for hotkeys."""
-        session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()
-        if session_type == "wayland":
+        # WAYLAND_DISPLAY is more reliable than XDG_SESSION_TYPE — the latter
+        # is not always set (e.g. some Sway/Hyprland setups), while the former
+        # is always present when a Wayland compositor is running.
+        is_wayland = bool(os.environ.get("WAYLAND_DISPLAY"))
+        if is_wayland:
             logger.warning("=" * 60)
             logger.warning("WAYLAND DETECTED - Hotkeys may not work!")
             logger.warning("=" * 60)
