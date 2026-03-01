@@ -156,5 +156,49 @@ class TestRetrainFromFeedback:
         model_in_tmp._retrain_from_feedback()
 
 
+class TestSaveLoadModel:
+    def test_save_load_round_trip(self, model_in_tmp):
+        """save_model() then _load_model() must restore trained=True."""
+        try:
+            import sklearn  # noqa: F401
+        except ImportError:
+            pytest.skip("sklearn not installed")
+        model_in_tmp._ensure_initialized()
+        assert model_in_tmp.trained
+
+        model_in_tmp.save_model()
+        assert model_in_tmp.model_path.exists()
+
+        m2 = ConfidenceModel(model_path=model_in_tmp.model_path)
+        m2._load_model()
+        assert m2.trained
+        assert m2.model is not None
+
+    def test_load_stale_model_is_discarded(self, tmp_path):
+        """A model trained on a different feature count must not be loaded."""
+        import pickle
+
+        from sklearn.ensemble import GradientBoostingClassifier
+
+        from sniptext.confidence import _FEATURE_COUNT
+
+        clf = GradientBoostingClassifier()
+        clf.n_features_in_ = _FEATURE_COUNT + 1  # wrong count — never fitted
+
+        model_path = tmp_path / "stale.pkl"
+        with open(model_path, "wb") as f:
+            pickle.dump({"model": clf}, f)
+
+        m = ConfidenceModel(model_path=model_path)
+        m._load_model()
+        assert not m.trained
+        assert m.model is None
+
+    def test_save_without_trained_model_does_not_create_file(self, model_in_tmp):
+        """save_model() before training must not create a file."""
+        model_in_tmp.save_model()
+        assert not model_in_tmp.model_path.exists()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

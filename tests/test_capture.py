@@ -105,3 +105,86 @@ class TestCaptureRegion:
             result = cap.capture_region()
         assert isinstance(result, np.ndarray)
         assert result.shape[:2] == (10, 10)
+
+
+class TestCaptureToFile:
+    """Tests for _capture_to_file() subprocess dispatch."""
+
+    def _cap(self, method_name, tool):
+        cap = _make_capture({tool: f"/usr/bin/{tool}"}, config=Config(display_server="x11"))
+        cap.capture_method = method_name
+        return cap
+
+    def _run_ok(self):
+        from unittest.mock import MagicMock
+
+        m = MagicMock()
+        m.returncode = 0
+        return m
+
+    def _run_fail(self):
+        from unittest.mock import MagicMock
+
+        m = MagicMock()
+        m.returncode = 1
+        return m
+
+    def test_maim_success(self, tmp_path):
+        cap = self._cap("maim", "maim")
+        with patch("sniptext.capture.subprocess.run", return_value=self._run_ok()):
+            assert cap._capture_to_file(tmp_path / "out.png") is True
+
+    def test_maim_failure(self, tmp_path):
+        cap = self._cap("maim", "maim")
+        with patch("sniptext.capture.subprocess.run", return_value=self._run_fail()):
+            assert cap._capture_to_file(tmp_path / "out.png") is False
+
+    def test_scrot_success(self, tmp_path):
+        cap = self._cap("scrot", "scrot")
+        with patch("sniptext.capture.subprocess.run", return_value=self._run_ok()):
+            assert cap._capture_to_file(tmp_path / "out.png") is True
+
+    def test_import_success(self, tmp_path):
+        cap = self._cap("import", "import")
+        with patch("sniptext.capture.subprocess.run", return_value=self._run_ok()):
+            assert cap._capture_to_file(tmp_path / "out.png") is True
+
+    def test_grimshot_success(self, tmp_path):
+        cap = _make_capture(
+            {"grimshot": "/usr/bin/grimshot"}, config=Config(display_server="wayland")
+        )
+        with patch("sniptext.capture.subprocess.run", return_value=self._run_ok()):
+            assert cap._capture_to_file(tmp_path / "out.png") is True
+
+    def test_slurp_grim_success(self, tmp_path):
+        cap = _make_capture(
+            {"slurp": "/usr/bin/slurp", "grim": "/usr/bin/grim"},
+            config=Config(display_server="wayland"),
+        )
+        slurp_result = self._run_ok()
+        slurp_result.stdout = "10,20 300x200"
+        grim_result = self._run_ok()
+        with patch("sniptext.capture.subprocess.run", side_effect=[slurp_result, grim_result]):
+            assert cap._capture_to_file(tmp_path / "out.png") is True
+
+    def test_slurp_user_cancel_returns_false(self, tmp_path):
+        cap = _make_capture(
+            {"slurp": "/usr/bin/slurp", "grim": "/usr/bin/grim"},
+            config=Config(display_server="wayland"),
+        )
+        with patch("sniptext.capture.subprocess.run", return_value=self._run_fail()):
+            assert cap._capture_to_file(tmp_path / "out.png") is False
+
+    def test_timeout_returns_false(self, tmp_path):
+        import subprocess
+
+        cap = self._cap("maim", "maim")
+        with patch(
+            "sniptext.capture.subprocess.run", side_effect=subprocess.TimeoutExpired("maim", 60)
+        ):
+            assert cap._capture_to_file(tmp_path / "out.png") is False
+
+    def test_unknown_method_returns_false(self, tmp_path):
+        cap = self._cap("maim", "maim")
+        cap.capture_method = "unknown_tool"
+        assert cap._capture_to_file(tmp_path / "out.png") is False
