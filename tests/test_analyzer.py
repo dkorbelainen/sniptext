@@ -70,7 +70,21 @@ class TestExtractFeatures:
         features = analyzer.extract_features(img)
         assert features[6] < 0.1  # noise_level
 
+    def test_noise_level_high_for_noisy_image(self, analyzer):
+        """Synthetic noisy image should have significantly higher noise_level than a uniform one."""
+        # Baseline: solid-color image
+        uniform_img = make_image(300, 100, value=150)
+        uniform_features = analyzer.extract_features(uniform_img)
 
+        # Synthetic noise: random RGB pixels
+        rng = np.random.RandomState(0)
+        noisy_array = rng.randint(0, 256, size=(100, 300, 3), dtype=np.uint8)
+        noisy_img = Image.fromarray(noisy_array, mode="RGB")
+        noisy_features = analyzer.extract_features(noisy_img)
+
+        # Noise level should be noticeably higher for the noisy image
+        assert noisy_features[6] > uniform_features[6] + 0.2
+        assert noisy_features[6] > 0.3
 class TestSuggestPsmMode:
     def test_wide_short_image_returns_psm7(self, analyzer):
         # aspect ratio > 4 and height < 100
