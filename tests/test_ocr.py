@@ -1,5 +1,7 @@
 """Tests for OCREngine internals (no real OCR calls)."""
 
+from unittest.mock import patch
+
 import numpy as np
 from PIL import Image
 
@@ -107,3 +109,93 @@ class TestTesseractBackendLangCode:
         config = Config(ocr_language="rus")
         backend = TesseractBackend(config)
         assert backend._get_lang_code() == "rus"
+
+
+class TestOCREngineRecognize:
+    """Tests for OCREngine.recognize() and _recognize_ensemble()."""
+
+    def _engine_with_mocked_backend(self, text="hello", correction=False, engine="tesseract"):
+        """Build an OCREngine whose Tesseract backend is fully mocked."""
+        with (
+            patch.object(TesseractBackend, "is_available", return_value=True),
+            patch.object(TesseractBackend, "recognize", return_value=text),
+        ):
+            config = Config(
+                ocr_engine=engine,
+                enable_text_correction=correction,
+                adaptive_ensemble=False,
+            )
+            return OCREngine(config)
+
+    def test_single_backend_returns_recognized_text(self):
+        engine = self._engine_with_mocked_backend("hello world")
+        arr = np.zeros((100, 100, 3), dtype=np.uint8)
+        with patch.object(TesseractBackend, "recognize", return_value="hello world"):
+            result = engine.recognize(arr)
+        assert result == "hello world"
+
+    def test_recognize_returns_empty_string_on_backend_exception(self):
+        with (
+            patch.object(TesseractBackend, "is_available", return_value=True),
+            patch.object(TesseractBackend, "recognize", side_effect=RuntimeError("boom")),
+        ):
+            config = Config(ocr_engine="tesseract", enable_text_correction=False)
+            engine = OCREngine(config)
+        arr = np.zeros((100, 100, 3), dtype=np.uint8)
+        with patch.object(TesseractBackend, "recognize", side_effect=RuntimeError("boom")):
+            result = engine.recognize(arr)
+        assert result == ""
+
+    def test_recognize_applies_text_correction(self):
+        with patch.object(TesseractBackend, "is_available", return_value=True):
+            config = Config(
+                ocr_engine="tesseract",
+                enable_text_correction=True,
+                ocr_language="eng",
+                adaptive_ensemble=False,
+            )
+            engine = OCREngine(config)
+        arr = np.zeros((100, 100, 3), dtype=np.uint8)
+        with patch.object(TesseractBackend, "recognize", return_value="1 am happy"):
+            result = engine.recognize(arr)
+        assert "I am" in result
+
+    def test_recognize_ensemble_no_available_backends_returns_empty(self):
+        with patch.object(TesseractBackend, "is_available", return_value=True):
+            config = Config(ocr_engine="tesseract", enable_text_correction=False)
+            engine = OCREngine(config)
+        # Mark all backends unavailable to simulate _recognize_ensemble with nothing
+        for b in engine.backends.values():
+            b._available = False
+        result = engine._recognize_ensemble(Image.fromarray(np.zeros((10, 10, 3), dtype=np.uint8)))
+        assert result == ""
+
+    def test_recognize_ensemble_single_result_passthrough(self):
+        with patch.object(TesseractBackend, "is_available", return_value=True):
+            config = Config(ocr_engine="tesseract", enable_text_correction=False)
+            engine = OCREngine(config)
+        with (
+            patch.object(TesseractBackend, "is_available", return_value=True),
+            patch.object(TesseractBackend, "recognize", return_value="only result"),
+            patch.object(EasyOCRBackend, "is_available", return_value=False),
+        ):
+            result = engine._recognize_ensemble(
+                Image.fromarray(np.zeros((10, 10, 3), dtype=np.uint8))
+            )
+        assert result == "only result"
+
+    def test_recognize_ensemble_combines_two_backends(self):
+        with patch.object(TesseractBackend, "is_available", return_value=True):
+            config = Config(ocr_engine="tesseract", enable_text_correction=False)
+            engine = OCREngine(config)
+        with (
+            patch.object(TesseractBackend, "is_available", return_value=True),
+            patch.object(TesseractBackend, "recognize", return_value="hello world"),
+            patch.object(EasyOCRBackend, "is_available", return_value=True),
+            patch.object(EasyOCRBackend, "recognize", return_value="hello world"),
+        ):
+            result = engine._recognize_ensemble(
+                Image.fromarray(np.zeros((10, 10, 3), dtype=np.uint8))
+            )
+        assert "hello" in result
+        assert "world" in result
