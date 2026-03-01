@@ -1,6 +1,7 @@
 """Tests for ConfidenceModel online learning."""
 
 import json
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -44,6 +45,63 @@ class TestRecordResult:
             model_in_tmp.record_result(features, "fast", True)
         lines = model_in_tmp.feedback_path.read_text().strip().splitlines()
         assert len(lines) == 5
+
+
+class TestPredictStrategyMLBranch:
+    """Tests for the trained-model branch inside predict_strategy().
+
+    The ML path is taken when contrast is in (0.2, 0.5] AND sharpness is in
+    (0.2, 0.4] — values that don't match either heuristic shortcut.
+    """
+
+    # Borderline features: contrast=0.35, sharpness=0.30 → ML branch
+    _BORDERLINE = np.array([0.5, 0.35, 0.30, 0.0, 0.5])
+
+    def _make_trained_model(self, tmp_path) -> ConfidenceModel:
+        m = ConfidenceModel(model_path=tmp_path / "confidence_model.pkl")
+        m._initialized = True  # skip lazy init
+        mock_model = MagicMock()
+        mock_model.predict.return_value = np.array([0])  # fast
+        mock_model.predict_proba.return_value = np.array([[0.8, 0.2]])
+        m.model = mock_model
+        m.trained = True
+        return m
+
+    def test_ml_model_predict_called_for_borderline_image(self, tmp_path):
+        m = self._make_trained_model(tmp_path)
+        with patch.object(m.analyzer, "extract_features", return_value=self._BORDERLINE):
+            strategy, confidence = m.predict_strategy(MagicMock())
+        m.model.predict.assert_called_once()
+        m.model.predict_proba.assert_called_once()
+
+    def test_ml_model_returns_fast_when_prediction_is_zero(self, tmp_path):
+        m = self._make_trained_model(tmp_path)
+        m.model.predict.return_value = np.array([0])
+        m.model.predict_proba.return_value = np.array([[0.85, 0.15]])
+        with patch.object(m.analyzer, "extract_features", return_value=self._BORDERLINE):
+            strategy, confidence = m.predict_strategy(MagicMock())
+        assert strategy == "fast"
+        assert confidence == pytest.approx(0.85)
+
+    def test_ml_model_returns_ensemble_when_prediction_is_one(self, tmp_path):
+        m = self._make_trained_model(tmp_path)
+        m.model.predict.return_value = np.array([1])
+        m.model.predict_proba.return_value = np.array([[0.2, 0.8]])
+        with patch.object(m.analyzer, "extract_features", return_value=self._BORDERLINE):
+            strategy, confidence = m.predict_strategy(MagicMock())
+        assert strategy == "ensemble"
+        assert confidence == pytest.approx(0.8)
+
+    def test_falls_back_to_heuristic_when_not_trained(self, tmp_path):
+        m = ConfidenceModel(model_path=tmp_path / "confidence_model.pkl")
+        m._initialized = True
+        m.trained = False
+        m.model = None
+        with patch.object(m.analyzer, "extract_features", return_value=self._BORDERLINE):
+            strategy, confidence = m.predict_strategy(MagicMock())
+        # Heuristic: quality = (contrast + sharpness)/2 = (0.35+0.30)/2 = 0.325 < 0.5 → ensemble
+        assert strategy == "ensemble"
+        assert isinstance(confidence, float)
 
 
 class TestRetrainFromFeedback:

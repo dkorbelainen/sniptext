@@ -94,6 +94,8 @@ def main():
 
         logger.info("Components initialized successfully")
 
+        hotkey_manager = None
+
         if args.capture_now:
             logger.info("Capturing screen...")
             image = screen_capture.capture_region()
@@ -132,6 +134,8 @@ def main():
 
     except KeyboardInterrupt:
         logger.info("Shutting down...")
+        if hotkey_manager is not None:
+            hotkey_manager.stop()
         return 0
     except Exception as e:
         logger.error(f"Error: {e}")
