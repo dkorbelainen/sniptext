@@ -134,6 +134,21 @@ class TestRetrainFromFeedback:
         # Must complete without exception
         model_in_tmp._retrain_from_feedback()
 
+    def test_retrain_single_class_skips_cv(self, model_in_tmp):
+        """When all samples share one label, sklearn can't fit — must not raise."""
+        rng = np.random.default_rng(0)
+        model_in_tmp.feedback_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(model_in_tmp.feedback_path, "w") as f:
+            for feat in rng.random((15, 7)):
+                f.write(json.dumps({"features": feat.tolist(), "label": 0, "success": True}) + "\n")
+        try:
+            import sklearn  # noqa: F401
+        except ImportError:
+            pytest.skip("sklearn not installed")
+        # Must complete without propagating an exception; training will fail
+        # gracefully (sklearn rejects single-class datasets).
+        model_in_tmp._retrain_from_feedback()
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

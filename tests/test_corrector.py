@@ -151,5 +151,19 @@ class TestDetectDominantLanguage:
         assert result in ("eng", "xyz_unknown")
 
 
+def test_punctuation_spacing_works_for_cyrillic():
+    """After the fix, punct+letter space rule applies to Cyrillic text."""
+    corrector = OCRCorrector("rus")
+    result = corrector.correct("Привет,мир")
+    assert "Привет, мир" == result
+
+
+def test_punctuation_spacing_works_for_arabic():
+    """Unicode letter lookahead must not break for non-Latin/Cyrillic scripts."""
+    corrector = OCRCorrector("ara")
+    result = corrector.correct("مرحبا,عالم")
+    assert "مرحبا, عالم" == result
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

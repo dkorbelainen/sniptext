@@ -259,7 +259,7 @@ class OCRCorrector:
         """Fix obvious character-level OCR errors."""
         text = re.sub(r" {2,}", " ", text)
         text = re.sub(r"\s+([.,!?;:)])", r"\1", text)
-        text = re.sub(r"([.,!?;:])(?=[a-zA-Zа-яА-ЯёЁ])", r"\1 ", text)
+        text = re.sub(r"([.,!?;:])(?=[^\W\d_])", r"\1 ", text)
 
         # English-only single-character and word-boundary corrections.
         # These patterns use English words so they must not run on non-English text.

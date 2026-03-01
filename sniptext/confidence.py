@@ -302,11 +302,40 @@ class ConfidenceModel:
 
         try:
             from sklearn.ensemble import GradientBoostingClassifier
+            from sklearn.model_selection import cross_val_score
 
             new_model = GradientBoostingClassifier(
                 n_estimators=50, max_depth=3, learning_rate=0.1, random_state=42
             )
             new_model.fit(X, y)
+
+            # Estimate generalisation with stratified k-fold CV.
+            # Use at most 5 folds but cap at the smallest class size so each
+            # fold has at least one sample of every class.
+            _, counts = np.unique(y, return_counts=True)
+            n_folds = min(5, int(counts.min()))
+            if n_folds >= 2:
+                cv_scores = cross_val_score(
+                    GradientBoostingClassifier(
+                        n_estimators=50, max_depth=3, learning_rate=0.1, random_state=42
+                    ),
+                    X,
+                    y,
+                    cv=n_folds,
+                    scoring="accuracy",
+                )
+                cv_mean = float(cv_scores.mean())
+                cv_std = float(cv_scores.std())
+                if cv_mean < 0.65:
+                    logger.warning(
+                        f"Low cross-validation accuracy ({cv_mean:.1%} ±{cv_std:.1%}); "
+                        "model may not generalise well — collect more feedback"
+                    )
+                else:
+                    logger.info(f"CV accuracy after retrain: {cv_mean:.1%} ±{cv_std:.1%}")
+            else:
+                logger.debug("Skipping CV: need samples from at least 2 classes")
+
             self.model = new_model
             self.trained = True
             self.save_model()
