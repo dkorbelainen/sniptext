@@ -47,7 +47,7 @@ class TestRecordResult:
         assert len(lines) == 5
 
     def test_wrong_feature_count_rejected(self, model_in_tmp):
-        """Feedback with wrong-length vector must be silently dropped."""
+        """Feedback with wrong-length vector must be dropped, with a warning logged."""
         bad_features = np.array([0.5, 0.5, 0.5, 0.0, 0.5])  # old 5-element format
         model_in_tmp.record_result(bad_features, "fast", True)
         assert not model_in_tmp.feedback_path.exists()
