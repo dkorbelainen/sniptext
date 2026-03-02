@@ -97,6 +97,8 @@ class TestPredictStrategyThresholds:
         # noise=0.5 ≥ 0.4 → should NOT be fast
         assert strategy != "fast"
 
+
+class TestPredictStrategyMLBranch:
     """Tests for the trained-model branch inside predict_strategy().
 
     The ML path is taken whenever none of the hard-threshold shortcuts fire:

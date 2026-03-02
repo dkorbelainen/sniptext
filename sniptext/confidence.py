@@ -183,7 +183,7 @@ class ConfidenceModel:
         noise = features[6]
         density = features[5]
 
-        # Weighted quality score across the four most informative features
+        # Weighted quality score across three features (contrast, sharpness, noise)
         quality_score = contrast * 0.5 + sharpness * 0.3 - noise * 0.2
 
         # Clearly bad: low contrast, blurry, very noisy, or almost no text → ensemble
