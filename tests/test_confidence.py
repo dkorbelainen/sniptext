@@ -53,14 +53,57 @@ class TestRecordResult:
         assert not model_in_tmp.feedback_path.exists()
 
 
-class TestPredictStrategyMLBranch:
+class TestPredictStrategyThresholds:
+    """Test the hard-threshold branches that bypass the ML model."""
+
+    def _model(self, tmp_path):
+        m = ConfidenceModel(model_path=tmp_path / "m.pkl")
+        m._initialized = True
+        m.trained = False
+        m.model = None
+        return m
+
+    def test_high_contrast_sharp_low_noise_is_fast(self, tmp_path):
+        m = self._model(tmp_path)
+        # contrast=0.7, sharpness=0.6, noise=0.1 → fast threshold
+        feat = np.array([0.7, 0.7, 0.6, 0.0, 0.5, 0.15, 0.1])
+        with patch.object(m.analyzer, "extract_features", return_value=feat):
+            strategy, _ = m.predict_strategy(MagicMock())
+        assert strategy == "fast"
+
+    def test_very_noisy_image_triggers_ensemble(self, tmp_path):
+        m = self._model(tmp_path)
+        # noise=0.8 → ensemble regardless of contrast/sharpness
+        feat = np.array([0.6, 0.6, 0.5, 0.0, 0.5, 0.15, 0.8])
+        with patch.object(m.analyzer, "extract_features", return_value=feat):
+            strategy, _ = m.predict_strategy(MagicMock())
+        assert strategy == "ensemble"
+
+    def test_near_empty_image_triggers_ensemble(self, tmp_path):
+        m = self._model(tmp_path)
+        # text_density=0.005 (almost no dark pixels) → ensemble
+        feat = np.array([0.95, 0.6, 0.5, 0.0, 0.5, 0.005, 0.05])
+        with patch.object(m.analyzer, "extract_features", return_value=feat):
+            strategy, _ = m.predict_strategy(MagicMock())
+        assert strategy == "ensemble"
+
+    def test_noisy_image_not_incorrectly_labelled_fast(self, tmp_path):
+        m = self._model(tmp_path)
+        # Old logic: contrast>0.5 AND sharpness>0.4 → fast, ignoring noise.
+        # New logic: noise=0.5 blocks the fast path.
+        feat = np.array([0.7, 0.6, 0.5, 0.0, 0.5, 0.15, 0.5])
+        with patch.object(m.analyzer, "extract_features", return_value=feat):
+            strategy, _ = m.predict_strategy(MagicMock())
+        # noise=0.5 ≥ 0.4 → should NOT be fast
+        assert strategy != "fast"
+
     """Tests for the trained-model branch inside predict_strategy().
 
-    The ML path is taken when contrast is in [0.2, 0.5] AND sharpness is in
-    [0.2, 0.4] — values that don't match either heuristic shortcut.
+    The ML path is taken when none of the hard thresholds fire:
+    contrast in (0.2, 0.5], sharpness in (0.2, 0.4], noise < 0.6, density >= 0.02.
     """
 
-    # Borderline features: contrast=0.35, sharpness=0.30 → ML branch
+    # Borderline features: contrast=0.35, sharpness=0.30, noise=0.10 → ML branch
     _BORDERLINE = np.array([0.5, 0.35, 0.30, 0.0, 0.5, 0.15, 0.10])
 
     def _make_trained_model(self, tmp_path) -> ConfidenceModel:
@@ -105,7 +148,8 @@ class TestPredictStrategyMLBranch:
         m.model = None
         with patch.object(m.analyzer, "extract_features", return_value=self._BORDERLINE):
             strategy, confidence = m.predict_strategy(MagicMock())
-        # Heuristic: quality = (contrast + sharpness)/2 = (0.35+0.30)/2 = 0.325 < 0.5 → ensemble
+        # Heuristic: quality = contrast*0.5 + sharpness*0.3 - noise*0.2
+        # = 0.35*0.5 + 0.30*0.3 - 0.10*0.2 = 0.175 + 0.09 - 0.02 = 0.245 < 0.35 → ensemble
         assert strategy == "ensemble"
         assert isinstance(confidence, float)
 

@@ -146,19 +146,26 @@ class EnsembleOCR:
         return _reflow(merged, ref)
 
     def _score_words(self, words: list[str]) -> float:
-        """Score a word sequence: prefer high alphanumeric ratio and completeness."""
+        """Score a word sequence: prefer high alphanumeric ratio, penalise noise tokens."""
         if not words:
             return 0.0
         text = " ".join(words)
         alnum = sum(c.isalnum() for c in text)
-        return (alnum / len(text)) * 10 + len(text) * 0.01
+        # Penalty: tokens made entirely of non-alnum chars (e.g. "|", "||", "@#")
+        # are classic OCR misreads and indicate a noisy segment.
+        noise_tokens = sum(1 for w in words if w and not any(c.isalnum() for c in w))
+        penalty = noise_tokens * 0.5
+        return (alnum / len(text)) * 10 + len(text) * 0.01 - penalty
 
     def _score_text(self, text: str) -> float:
         """Score a full OCR result for use as a sort key (higher = better base)."""
         if not text:
             return 0.0
+        words = text.split()
         alnum = sum(c.isalnum() for c in text)
-        return (alnum / len(text)) * 10 + len(text) * 0.01
+        noise_tokens = sum(1 for w in words if w and not any(c.isalnum() for c in w))
+        penalty = noise_tokens * 0.5
+        return (alnum / len(text)) * 10 + len(text) * 0.01 - penalty
 
     def calculate_confidence(self, results: list[str]) -> float:
         """
