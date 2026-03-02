@@ -99,8 +99,11 @@ class TestPredictStrategyThresholds:
 
     """Tests for the trained-model branch inside predict_strategy().
 
-    The ML path is taken when none of the hard thresholds fire:
-    contrast in (0.2, 0.5], sharpness in (0.2, 0.4], noise < 0.6, density >= 0.02.
+    The ML path is taken whenever none of the hard-threshold shortcuts fire:
+    the image is neither clearly suitable for the fast path nor clearly bad
+    enough to force the ensemble. This includes medium-quality cases as well
+    as high-contrast images that are too noisy (e.g. noise >= 0.4) or not
+    sharp enough (e.g. sharpness <= 0.4) to satisfy the fast-path criteria.
     """
 
     # Borderline features: contrast=0.35, sharpness=0.30, noise=0.10 → ML branch
