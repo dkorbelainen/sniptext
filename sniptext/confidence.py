@@ -180,20 +180,24 @@ class ConfidenceModel:
 
         contrast = features[1]
         sharpness = features[2]
+        noise = features[6]
+        density = features[5]
 
-        # High contrast and good sharpness = easy case
-        quality_score = contrast * 0.6 + sharpness * 0.4
+        # Weighted quality score across three features (contrast, sharpness, noise)
+        quality_score = contrast * 0.5 + sharpness * 0.3 - noise * 0.2
 
-        if contrast > 0.5 and sharpness > 0.4:
-            strategy = "fast"
-            confidence = min(quality_score, 0.95)
-        elif contrast < 0.2 or sharpness < 0.2:
+        # Clearly bad: low contrast, blurry, very noisy, or almost no text → ensemble
+        if contrast < 0.2 or sharpness < 0.2 or noise > 0.6 or density < 0.02:
             strategy = "ensemble"
             confidence = 0.9
+        # Clearly good: high contrast, sharp, low noise → fast
+        elif contrast > 0.5 and sharpness > 0.4 and noise < 0.4:
+            strategy = "fast"
+            confidence = min(quality_score + 0.2, 0.95)
         else:
             # Use trained model for borderline cases
             if not self.trained or self.model is None:
-                return self._heuristic_strategy(image)
+                return self._heuristic_strategy(features)
 
             features_reshaped = features.reshape(1, -1)
             prediction = self.model.predict(features_reshaped)[0]
@@ -203,25 +207,26 @@ class ConfidenceModel:
             confidence = probabilities[prediction]
 
         logger.debug(
-            f"Predicted strategy: {strategy} (confidence: {confidence:.2f}, quality: {quality_score:.2f})"
+            f"Predicted strategy: {strategy} (confidence: {confidence:.2f}, "
+            f"contrast={contrast:.2f}, sharpness={sharpness:.2f}, "
+            f"noise={noise:.2f}, density={density:.2f})"
         )
 
         return strategy, confidence
 
-    def _heuristic_strategy(self, image: Image.Image) -> tuple[str, float]:
+    def _heuristic_strategy(self, features: np.ndarray) -> tuple[str, float]:
         """Fallback heuristic when model is not available."""
-        features = self.analyzer.extract_features(image)
-
-        # Simple heuristic: if contrast and sharpness are good, use fast mode
         contrast = features[1]
         sharpness = features[2]
+        noise = features[6]
 
-        quality_score = (contrast + sharpness) / 2
+        # Weighted quality across the three most relevant features
+        quality_score = contrast * 0.5 + sharpness * 0.3 - noise * 0.2
 
-        if quality_score > 0.5:
-            return "fast", quality_score
+        if quality_score > 0.35:
+            return "fast", min(quality_score + 0.2, 0.95)
         else:
-            return "ensemble", 1.0 - quality_score
+            return "ensemble", min(1.0 - quality_score, 0.95)
 
     def record_result(self, features: np.ndarray, strategy: str, success: bool):
         """

@@ -138,3 +138,35 @@ class TestMergeAlignment:
         result_ab = ensemble.combine_results([clean, noisy])
         result_ba = ensemble.combine_results([noisy, clean])
         assert result_ab == result_ba
+
+
+class TestScoring:
+    """Tests for _score_words and _score_text noise-token penalty."""
+
+    def setup_method(self):
+        self.e = EnsembleOCR()
+
+    def test_noise_tokens_penalise_score(self):
+        """A segment with pure-symbol tokens scores lower than clean text."""
+        clean = ["Hello", "world"]
+        noisy = ["Hello", "|||", "world"]
+        assert self.e._score_words(clean) > self.e._score_words(noisy)
+
+    def test_score_text_prefers_clean_result(self):
+        """Full-text scoring ranks clean OCR output above noisy one."""
+        clean = "Hello world test"
+        noisy = "Hello | world | test"
+        assert self.e._score_text(clean) > self.e._score_text(noisy)
+
+    def test_score_words_empty_returns_zero(self):
+        assert self.e._score_words([]) == 0.0
+
+    def test_score_text_empty_returns_zero(self):
+        assert self.e._score_text("") == 0.0
+
+    def test_combine_prefers_clean_over_pipe_noise(self):
+        """combine_results picks the clean result as base when one has pipe artifacts."""
+        clean = "Total amount 1500"
+        noisy = "T0tal am0unt ||| 1500"
+        result = EnsembleOCR().combine_results([noisy, clean])
+        assert "|||" not in result
