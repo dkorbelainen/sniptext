@@ -54,7 +54,9 @@ class TesseractBackend(OCRBackend):
             raise RuntimeError("Tesseract not available")
 
         enhanced_image = self._analyzer.enhance_for_ocr(image)
-        psm_mode = self._analyzer.suggest_psm_mode(image)
+        # PSM mode is determined after enhancement so that upscaling is
+        # already applied — small images get expanded before we measure them.
+        psm_mode = self._analyzer.suggest_psm_mode(enhanced_image)
 
         lang_code = self._get_lang_code()
         custom_config = f"--oem 1 --psm {psm_mode}"
@@ -141,8 +143,10 @@ class EasyOCRBackend(OCRBackend):
         for detection in results:
             bbox, text, confidence = detection
 
-            # Lower threshold to catch more text (0.3 instead of 0.6)
-            if confidence >= max(0.3, self.config.ocr_confidence_threshold * 0.5):
+            # EasyOCR confidence scores are in [0,1]; honour the configured
+            # threshold directly.  The previous * 0.5 factor effectively
+            # ignored the setting for any value ≤ 0.6.
+            if confidence >= self.config.ocr_confidence_threshold:
                 lines.append(text)
                 logger.debug(f"Text: '{text}' (confidence: {confidence:.2f})")
             else:
