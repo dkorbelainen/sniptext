@@ -152,3 +152,34 @@ class TestPaste:
             result = mgr.paste()
         assert result == "xsel text"
         assert "xsel" in mock_run.call_args[0][0][0]
+
+
+class TestClipboardCleanup:
+    def test_cleanup_terminates_wl_process(self):
+        """cleanup() must terminate a running wl-copy process."""
+        mgr = _make_manager({"wl-copy": "/usr/bin/wl-copy"})
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None  # still running
+        mgr._wl_process = mock_proc
+
+        mgr.cleanup()
+
+        mock_proc.terminate.assert_called_once()
+        assert mgr._wl_process is None
+
+    def test_cleanup_is_noop_when_no_process(self):
+        """cleanup() must not raise if no wl-copy process is running."""
+        mgr = _make_manager({"wl-copy": "/usr/bin/wl-copy"})
+        mgr._wl_process = None
+        mgr.cleanup()  # must not raise
+
+    def test_cleanup_skips_already_exited_process(self):
+        """cleanup() must not call terminate() if the process already exited."""
+        mgr = _make_manager({"wl-copy": "/usr/bin/wl-copy"})
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = 0  # already exited
+        mgr._wl_process = mock_proc
+
+        mgr.cleanup()
+
+        mock_proc.terminate.assert_not_called()

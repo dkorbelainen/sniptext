@@ -1,6 +1,6 @@
 """Tests for OCREngine internals (no real OCR calls)."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 from PIL import Image
@@ -97,6 +97,26 @@ class TestEasyOCRBackendLangCodes:
         config = Config(ocr_language="xyz")
         backend = EasyOCRBackend(config)
         assert backend._get_lang_codes() == ["xyz"]
+
+    def test_confidence_threshold_respected(self):
+        """Detections below ocr_confidence_threshold must be dropped."""
+        config = Config(ocr_language="eng", ocr_confidence_threshold=0.7)
+        backend = EasyOCRBackend(config)
+        backend._available = True
+        backend._initialized = True
+
+        mock_reader = MagicMock()
+        # Two detections: one above threshold, one below
+        mock_reader.readtext.return_value = [
+            ([[0, 0], [10, 0], [10, 10], [0, 10]], "hello", 0.9),
+            ([[0, 0], [10, 0], [10, 10], [0, 10]], "noise", 0.4),
+        ]
+        backend._reader = mock_reader
+
+        img = Image.fromarray(np.zeros((20, 20, 3), dtype=np.uint8))
+        result = backend.recognize(img)
+        assert "hello" in result
+        assert "noise" not in result
 
 
 class TestTesseractBackendLangCode:

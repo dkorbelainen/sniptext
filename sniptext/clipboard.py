@@ -133,6 +133,23 @@ class ClipboardManager:
             logger.error(f"Error copying to clipboard: {e}")
             return False
 
+    def cleanup(self) -> None:
+        """Terminate the wl-copy background process if one is running."""
+        if self._wl_process is not None and self._wl_process.poll() is None:
+            try:
+                self._wl_process.terminate()
+                self._wl_process.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                self._wl_process.kill()
+                try:
+                    self._wl_process.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    pass
+            except Exception as e:
+                logger.debug(f"Error cleaning up wl-copy process: {e}")
+            finally:
+                self._wl_process = None
+
     def paste(self) -> Optional[str]:
         """
         Get text from clipboard.

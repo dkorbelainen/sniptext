@@ -88,6 +88,7 @@ def main():
         logger.info(f"OCR engine overridden to: {args.ocr_engine}")
 
     hotkey_manager = None
+    clipboard_manager = None
     try:
         screen_capture = ScreenCapture(config)
         ocr_engine = OCREngine(config)
@@ -141,6 +142,9 @@ def main():
         if args.verbose:
             logger.exception(e)
         return 1
+    finally:
+        if clipboard_manager is not None:
+            clipboard_manager.cleanup()
 
     return 0
 
