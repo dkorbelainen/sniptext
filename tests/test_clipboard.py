@@ -183,3 +183,65 @@ class TestClipboardCleanup:
         mgr.cleanup()
 
         mock_proc.terminate.assert_not_called()
+
+
+class TestWlCopyTerminateTimeout:
+    """Cover the kill() fallback when terminate() leaves the process running."""
+
+    def _make_wayland_manager(self):
+        return _make_manager({"wl-copy": "/usr/bin/wl-copy"})
+
+    def test_kill_called_when_terminate_times_out(self):
+        """If wl-copy ignores terminate(), kill() must be called."""
+        mgr = self._make_wayland_manager()
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None  # process still running
+        mock_proc.terminate.return_value = None
+        # First wait() (after terminate) times out; second (after kill) succeeds
+        mock_proc.wait.side_effect = [subprocess.TimeoutExpired("wl-copy", 1.0), None]
+        mgr._wl_process = mock_proc
+
+        new_proc = MagicMock()
+        new_proc.poll.return_value = None
+        new_proc.stdin = MagicMock()
+
+        with patch("sniptext.clipboard.subprocess.Popen", return_value=new_proc):
+            mgr.copy("hello")
+
+        mock_proc.kill.assert_called_once()
+        assert mgr._wl_process is new_proc
+
+    def test_wl_process_reset_after_terminate_exception(self):
+        """If terminate() itself raises, _wl_process must still be reset."""
+        mgr = self._make_wayland_manager()
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_proc.terminate.side_effect = OSError("gone")
+        mgr._wl_process = mock_proc
+
+        new_proc = MagicMock()
+        new_proc.poll.return_value = None
+        new_proc.stdin = MagicMock()
+
+        with patch("sniptext.clipboard.subprocess.Popen", return_value=new_proc):
+            mgr.copy("hello")
+
+        assert mgr._wl_process is new_proc
+
+    def test_kill_wait_timeout_does_not_raise(self):
+        """If kill() wait also times out, copy() must still succeed (best-effort)."""
+        mgr = self._make_wayland_manager()
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_proc.wait.side_effect = subprocess.TimeoutExpired("wl-copy", 1.0)
+        mgr._wl_process = mock_proc
+
+        new_proc = MagicMock()
+        new_proc.poll.return_value = None
+        new_proc.stdin = MagicMock()
+
+        with patch("sniptext.clipboard.subprocess.Popen", return_value=new_proc):
+            result = mgr.copy("hello")
+
+        assert result is True
+        assert mgr._wl_process is new_proc

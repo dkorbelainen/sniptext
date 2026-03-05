@@ -251,6 +251,33 @@ class TestSaveLoadModel:
         model_in_tmp.save_model()
         assert not model_in_tmp.model_path.exists()
 
+    def test_load_corrupt_pickle_sets_trained_false(self, tmp_path):
+        """_load_model() on a corrupt file must not raise and must leave trained=False."""
+        model_path = tmp_path / "corrupt.pkl"
+        model_path.write_bytes(b"not a valid pickle")
+
+        m = ConfidenceModel(model_path=model_path)
+        m._load_model()
+
+        assert not m.trained
+        assert m.model is None
+
+    def test_save_model_handles_write_error(self, tmp_path):
+        """save_model() must not raise when the file cannot be written."""
+        try:
+            import sklearn  # noqa: F401
+        except ImportError:
+            pytest.skip("sklearn not installed")
+
+        m = ConfidenceModel(model_path=tmp_path / "model.pkl")
+        m._ensure_initialized()
+        assert m.trained
+
+        with patch("builtins.open", side_effect=OSError("disk full")):
+            m.save_model()  # must not raise
+
+        assert not (tmp_path / "model.pkl").exists()
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
