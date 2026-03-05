@@ -62,12 +62,25 @@ class Config:
             )
             self.display_server = "auto"
 
-        if not (0.0 < self.ocr_confidence_threshold <= 1.0):
+        value = self.ocr_confidence_threshold
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError):
             logger.warning(
-                f"Invalid ocr_confidence_threshold={self.ocr_confidence_threshold!r}; "
-                "must be in (0, 1]. Resetting to 0.6."
+                f"Invalid ocr_confidence_threshold={value!r}; must be numeric in (0, 1]. "
+                "Resetting to 0.6."
             )
             self.ocr_confidence_threshold = 0.6
+        else:
+            if not (0.0 < numeric_value <= 1.0):
+                logger.warning(
+                    f"Invalid ocr_confidence_threshold={numeric_value!r}; "
+                    "must be in (0, 1]. Resetting to 0.6."
+                )
+                self.ocr_confidence_threshold = 0.6
+            else:
+                # Normalize to float even if the original value was an int or numeric string
+                self.ocr_confidence_threshold = numeric_value
 
         if not isinstance(self.max_image_size, int) or self.max_image_size < 64:
             logger.warning(
