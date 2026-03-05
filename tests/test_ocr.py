@@ -42,6 +42,7 @@ class TestPrepareImage:
     def test_rgba_pil_image_converted_to_rgb(self):
         img = Image.fromarray(np.zeros((100, 100, 4), dtype=np.uint8), mode="RGBA")
         result = self.engine._prepare_image(img)
+        assert isinstance(result, Image.Image)
         assert result.mode == "RGB"
 
     def test_max_image_size_respected(self):
