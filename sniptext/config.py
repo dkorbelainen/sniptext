@@ -61,33 +61,37 @@ class Config:
                 "Resetting to 'auto'."
             )
             self.display_server = "auto"
-
-        value = self.ocr_confidence_threshold
-        try:
-            numeric_value = float(value)
-        except (TypeError, ValueError):
+            default_engine = type(self).ocr_engine
             logger.warning(
-                f"Invalid ocr_confidence_threshold={value!r}; must be numeric in (0, 1]. "
-                "Resetting to 0.6."
+                f"Invalid ocr_engine={self.ocr_engine!r}; must be one of {sorted(valid_engines)}. "
+                f"Resetting to {default_engine!r}."
             )
-            self.ocr_confidence_threshold = 0.6
-        else:
-            if not (0.0 < numeric_value <= 1.0):
-                logger.warning(
-                    f"Invalid ocr_confidence_threshold={numeric_value!r}; "
-                    "must be in (0, 1]. Resetting to 0.6."
-                )
-                self.ocr_confidence_threshold = 0.6
-            else:
-                # Normalize to float even if the original value was an int or numeric string
-                self.ocr_confidence_threshold = numeric_value
+            self.ocr_engine = default_engine
+
+        valid_display = {"auto", "wayland", "x11"}
+        if self.display_server not in valid_display:
+            default_display = type(self).display_server
+            logger.warning(
+                f"Invalid display_server={self.display_server!r}; must be one of {sorted(valid_display)}. "
+                f"Resetting to {default_display!r}."
+            )
+            self.display_server = default_display
+
+        if not (0.0 < self.ocr_confidence_threshold <= 1.0):
+            default_conf_threshold = type(self).ocr_confidence_threshold
+            logger.warning(
+                f"Invalid ocr_confidence_threshold={self.ocr_confidence_threshold!r}; "
+                f"must be in (0, 1]. Resetting to {default_conf_threshold!r}."
+            )
+            self.ocr_confidence_threshold = default_conf_threshold
 
         if not isinstance(self.max_image_size, int) or self.max_image_size < 64:
+            default_max_size = type(self).max_image_size
             logger.warning(
                 f"Invalid max_image_size={self.max_image_size!r}; "
-                "must be an integer >= 64. Resetting to 4096."
+                f"must be an integer >= 64. Resetting to {default_max_size!r}."
             )
-            self.max_image_size = 4096
+            self.max_image_size = default_max_size
 
     @classmethod
     def load(cls, config_path: Path) -> "Config":
