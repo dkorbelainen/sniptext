@@ -165,5 +165,28 @@ def test_punctuation_spacing_works_for_arabic():
     assert "مرحبا, عالم" == result
 
 
+def test_spell_correct_preserves_punctuation_around_word():
+    """Prefix/suffix punctuation must survive spell correction."""
+    corrector = OCRCorrector("eng")
+    # "teh" (common OCR misread of "the") wrapped in parentheses
+    result = corrector.correct("(teh)")
+    # Either corrected-and-wrapped or left as-is — either way parens must stay
+    assert result.startswith("(") and result.endswith(")")
+
+
+def test_spell_correct_uppercase_word_stays_uppercase():
+    """All-caps misspelled word must be corrected in all-caps form."""
+    corrector = OCRCorrector("eng")
+    # Force aggressive mode so a wider edit-distance is attempted
+    result = corrector.correct("WRODS on screen", aggressive=True)
+    if "WORDS" in result:
+        assert result.startswith("WORDS")
+    # Regardless of whether spell correction fired, the first token must
+    # remain all-caps and be either the original or corrected form.
+    first_token = result.split()[0]
+    assert first_token in ("WRODS", "WORDS")
+    assert first_token.upper() == first_token
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

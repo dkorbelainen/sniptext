@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
 from PIL import Image
 
 from sniptext.config import Config
@@ -225,3 +226,47 @@ class TestOCREngineRecognize:
             )
         assert "hello" in result
         assert "world" in result
+
+
+class TestTesseractBackendRecognize:
+    """Tests for TesseractBackend.recognize() with mocked pytesseract."""
+
+    def _make_backend(self, lang="eng"):
+        config = Config(ocr_language=lang)
+        with patch.object(TesseractBackend, "_check_available", return_value=True):
+            backend = TesseractBackend(config)
+        backend._available = True
+        backend._tesseract = MagicMock()
+        backend._tesseract.image_to_string.return_value = "  hello world  "
+        return backend
+
+    def test_returns_stripped_text(self):
+        backend = self._make_backend()
+        img = Image.fromarray(np.zeros((100, 400, 3), dtype=np.uint8))
+        result = backend.recognize(img)
+        assert result == "hello world"
+
+    def test_calls_image_to_string_with_lang(self):
+        backend = self._make_backend(lang="rus")
+        img = Image.fromarray(np.zeros((100, 400, 3), dtype=np.uint8))
+        backend.recognize(img)
+        call_kwargs = backend._tesseract.image_to_string.call_args
+        assert call_kwargs[1]["lang"] == "rus" or call_kwargs[0][1] == "rus"
+
+    def test_calls_image_to_string_with_psm_config(self):
+        backend = self._make_backend()
+        img = Image.fromarray(np.zeros((100, 400, 3), dtype=np.uint8))
+        backend.recognize(img)
+        call_kwargs = backend._tesseract.image_to_string.call_args
+        config_str = call_kwargs[1].get("config") or call_kwargs[0][2]
+        assert "--psm" in config_str
+        assert "--oem 1" in config_str
+
+    def test_raises_when_not_available(self):
+        config = Config()
+        with patch.object(TesseractBackend, "_check_available", return_value=True):
+            backend = TesseractBackend(config)
+        backend._available = False
+        img = Image.fromarray(np.zeros((10, 10, 3), dtype=np.uint8))
+        with pytest.raises(RuntimeError, match="Tesseract not available"):
+            backend.recognize(img)
