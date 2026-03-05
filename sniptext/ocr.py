@@ -381,6 +381,9 @@ class OCREngine:
             logger.warning(f"Unexpected image shape: {image.shape}")
             pil_image = Image.fromarray(image)
 
+        if pil_image.mode == "RGBA":
+            pil_image = pil_image.convert("RGB")
+
         max_size = self.config.max_image_size
         # Validate max_image_size to avoid Pillow errors with non-positive sizes
         if isinstance(max_size, int) and max_size >= 1:

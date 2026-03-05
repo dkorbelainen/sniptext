@@ -33,11 +33,16 @@ class TestPrepareImage:
         assert isinstance(result, Image.Image)
         assert result.mode == "L"
 
-    def test_rgba_numpy_array(self):
+    def test_rgba_numpy_array_converted_to_rgb(self):
         arr = np.zeros((100, 100, 4), dtype=np.uint8)
         result = self.engine._prepare_image(arr)
         assert isinstance(result, Image.Image)
-        assert result.mode == "RGBA"
+        assert result.mode == "RGB"
+
+    def test_rgba_pil_image_converted_to_rgb(self):
+        img = Image.fromarray(np.zeros((100, 100, 4), dtype=np.uint8), mode="RGBA")
+        result = self.engine._prepare_image(img)
+        assert result.mode == "RGB"
 
     def test_max_image_size_respected(self):
         config = Config(max_image_size=64)
