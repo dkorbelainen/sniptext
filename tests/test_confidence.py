@@ -273,7 +273,7 @@ class TestSaveLoadModel:
         m._ensure_initialized()
         assert m.trained
 
-        with patch("builtins.open", side_effect=OSError("disk full")):
+        with patch("sniptext.confidence.open", side_effect=OSError("disk full")):
             m.save_model()  # must not raise
 
         assert not (tmp_path / "model.pkl").exists()
