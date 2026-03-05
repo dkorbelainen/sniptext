@@ -135,20 +135,24 @@ class ClipboardManager:
 
     def cleanup(self) -> None:
         """Terminate the wl-copy background process if one is running."""
-        if self._wl_process is not None and self._wl_process.poll() is None:
-            try:
-                self._wl_process.terminate()
-                self._wl_process.wait(timeout=1.0)
-            except subprocess.TimeoutExpired:
-                self._wl_process.kill()
+        proc = self._wl_process
+        if proc is None:
+            return
+        try:
+            if proc.poll() is None:
                 try:
-                    self._wl_process.wait(timeout=1.0)
+                    proc.terminate()
+                    proc.wait(timeout=1.0)
                 except subprocess.TimeoutExpired:
-                    pass
-            except Exception as e:
-                logger.debug(f"Error cleaning up wl-copy process: {e}")
-            finally:
-                self._wl_process = None
+                    proc.kill()
+                    try:
+                        proc.wait(timeout=1.0)
+                    except subprocess.TimeoutExpired:
+                        pass
+        except Exception as e:
+            logger.debug(f"Error cleaning up wl-copy process: {e}")
+        finally:
+            self._wl_process = None
 
     def paste(self) -> Optional[str]:
         """
