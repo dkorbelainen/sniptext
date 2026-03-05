@@ -270,3 +270,57 @@ class TestTesseractBackendRecognize:
         img = Image.fromarray(np.zeros((10, 10, 3), dtype=np.uint8))
         with pytest.raises(RuntimeError, match="Tesseract not available"):
             backend.recognize(img)
+
+
+class TestInitializeBackend:
+    """Tests for OCREngine._initialize_backend() fallback logic."""
+
+    def _engine(self, engine_name: str) -> OCREngine:
+        config = Config(ocr_engine=engine_name, enable_text_correction=False)
+        with patch.object(TesseractBackend, "_check_available", return_value=True):
+            return OCREngine(config)
+
+    def test_tesseract_engine_returns_tesseract_when_available(self):
+        eng = self._engine("tesseract")
+        with (
+            patch.object(TesseractBackend, "is_available", return_value=True),
+            patch.object(EasyOCRBackend, "is_available", return_value=True),
+        ):
+            backend = eng._initialize_backend()
+        assert isinstance(backend, TesseractBackend)
+
+    def test_easyocr_engine_returns_easyocr_when_available(self):
+        eng = self._engine("easyocr")
+        with (
+            patch.object(TesseractBackend, "is_available", return_value=True),
+            patch.object(EasyOCRBackend, "is_available", return_value=True),
+        ):
+            backend = eng._initialize_backend()
+        assert isinstance(backend, EasyOCRBackend)
+
+    def test_easyocr_falls_back_to_tesseract(self):
+        eng = self._engine("easyocr")
+        with (
+            patch.object(EasyOCRBackend, "is_available", return_value=False),
+            patch.object(TesseractBackend, "is_available", return_value=True),
+        ):
+            backend = eng._initialize_backend()
+        assert isinstance(backend, TesseractBackend)
+
+    def test_tesseract_falls_back_to_easyocr(self):
+        eng = self._engine("tesseract")
+        with (
+            patch.object(TesseractBackend, "is_available", return_value=False),
+            patch.object(EasyOCRBackend, "is_available", return_value=True),
+        ):
+            backend = eng._initialize_backend()
+        assert isinstance(backend, EasyOCRBackend)
+
+    def test_raises_when_no_backend_available(self):
+        eng = self._engine("tesseract")
+        with (
+            patch.object(TesseractBackend, "is_available", return_value=False),
+            patch.object(EasyOCRBackend, "is_available", return_value=False),
+        ):
+            with pytest.raises(RuntimeError, match="No OCR backend available"):
+                eng._initialize_backend()
