@@ -181,9 +181,11 @@ def test_spell_correct_uppercase_word_stays_uppercase():
     result = corrector.correct("WRODS on screen", aggressive=True)
     if "WORDS" in result:
         assert result.startswith("WORDS")
-    # If spell correction is unavailable or the word isn't in the dict, just
-    # verify the corrector doesn't crash or lowercase the word unexpectedly.
-    assert result == result  # always passes — the real guard is the one above
+    # Regardless of whether spell correction fired, the first token must
+    # remain all-caps and be either the original or corrected form.
+    first_token = result.split()[0]
+    assert first_token in ("WRODS", "WORDS")
+    assert first_token.upper() == first_token
 
 
 if __name__ == "__main__":
