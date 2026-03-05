@@ -111,6 +111,15 @@ class TestIsHotkeyPressed:
         keys = {keyboard.Key.cmd, "s"}
         assert mgr._is_hotkey_pressed(keys) is True
 
+    def test_no_modifier_hotkey_matches_on_key_alone(self):
+        """When modifiers is empty, any press of the key triggers (modifiers_ok=True)."""
+        mgr = _make_manager("t")  # no modifier — this is intentionally warned about
+        assert mgr._is_hotkey_pressed({"t"}) is True
+
+    def test_no_modifier_hotkey_does_not_match_wrong_key(self):
+        mgr = _make_manager("t")
+        assert mgr._is_hotkey_pressed({"s"}) is False
+
 
 class TestOnHotkeyTriggered:
     def test_calls_capture_ocr_clipboard_in_order(self):
@@ -162,6 +171,28 @@ class TestOnHotkeyTriggered:
         mgr._on_hotkey_triggered()
 
         assert not mgr._processing.is_set()
+
+    def test_clipboard_failure_does_not_raise(self):
+        mgr = _make_manager()
+        mgr.screen_capture.capture_region.return_value = MagicMock()
+        mgr.ocr_engine.recognize.return_value = "some text"
+        mgr.clipboard_manager.copy.return_value = False
+
+        mgr._on_hotkey_triggered()  # must not raise
+
+        mgr.clipboard_manager.copy.assert_called_once_with("some text")
+
+    def test_notification_sent_on_success(self):
+        mgr = _make_manager()
+        mgr.screen_capture.capture_region.return_value = MagicMock()
+        mgr.ocr_engine.recognize.return_value = "hello"
+        mgr.clipboard_manager.copy.return_value = True
+        mgr.config.notification_enabled = True
+
+        with patch.object(mgr, "_show_notification") as mock_notify:
+            mgr._on_hotkey_triggered()
+
+        mock_notify.assert_called_once()
 
 
 class TestShowNotification:
