@@ -42,6 +42,40 @@ class Config:
         if self.ocr_model_path is None:
             self.ocr_model_path = Path.home() / ".local" / "share" / "sniptext" / "models"
 
+        self._validate()
+
+    def _validate(self) -> None:
+        """Validate config values, resetting invalid ones to defaults with a warning."""
+        valid_engines = {"ensemble", "tesseract", "easyocr"}
+        if self.ocr_engine not in valid_engines:
+            logger.warning(
+                f"Invalid ocr_engine={self.ocr_engine!r}; must be one of {sorted(valid_engines)}. "
+                "Resetting to 'ensemble'."
+            )
+            self.ocr_engine = "ensemble"
+
+        valid_display = {"auto", "wayland", "x11"}
+        if self.display_server not in valid_display:
+            logger.warning(
+                f"Invalid display_server={self.display_server!r}; must be one of {sorted(valid_display)}. "
+                "Resetting to 'auto'."
+            )
+            self.display_server = "auto"
+
+        if not (0.0 < self.ocr_confidence_threshold <= 1.0):
+            logger.warning(
+                f"Invalid ocr_confidence_threshold={self.ocr_confidence_threshold!r}; "
+                "must be in (0, 1]. Resetting to 0.6."
+            )
+            self.ocr_confidence_threshold = 0.6
+
+        if not isinstance(self.max_image_size, int) or self.max_image_size < 64:
+            logger.warning(
+                f"Invalid max_image_size={self.max_image_size!r}; "
+                "must be an integer >= 64. Resetting to 4096."
+            )
+            self.max_image_size = 4096
+
     @classmethod
     def load(cls, config_path: Path) -> "Config":
         """Load configuration from YAML file."""
