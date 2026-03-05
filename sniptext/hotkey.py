@@ -70,6 +70,13 @@ class HotkeyManager:
 
         logger.debug(f"Parsed hotkey - modifiers: {self.modifiers}, key: {self.key}")
 
+        if not self.modifiers:
+            logger.warning(
+                f"Hotkey {self.config.hotkey!r} has no modifier keys (Ctrl/Alt/Shift/Super). "
+                "Any key press matching the key portion will trigger capture. "
+                "Consider adding a modifier, e.g. '<ctrl>+<alt>+t'."
+            )
+
     def start(self) -> None:
         """Start listening for hotkeys."""
         # WAYLAND_DISPLAY is more reliable than XDG_SESSION_TYPE — the latter

@@ -49,6 +49,19 @@ class TestParseHotkey:
         assert keyboard.Key.cmd in mgr.modifiers
         assert mgr.key == "s"
 
+    def test_no_modifier_logs_warning(self):
+        with patch("sniptext.hotkey.logger.warning") as mock_warn:
+            _make_manager("t")
+        # At least one warning must mention the missing modifier
+        messages = [str(c.args[0]) for c in mock_warn.call_args_list]
+        assert any("modifier" in m.lower() for m in messages)
+
+    def test_with_modifier_no_warning(self):
+        with patch("sniptext.hotkey.logger.warning") as mock_warn:
+            _make_manager("<ctrl>+<alt>+t")
+        messages = [str(c.args[0]) for c in mock_warn.call_args_list]
+        assert not any("modifier" in m.lower() for m in messages)
+
 
 class TestIsHotkeyPressed:
     def test_full_combo_returns_true(self):
