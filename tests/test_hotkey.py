@@ -182,6 +182,31 @@ class TestShowNotification:
 
         mock_notify.assert_not_called()
 
+    def test_nonzero_returncode_does_not_raise(self):
+        mgr = _make_manager()
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        with patch("sniptext.hotkey.subprocess.run", return_value=mock_result):
+            mgr._show_notification("hello")  # must not raise
+
+    def test_unexpected_exception_does_not_raise(self):
+        mgr = _make_manager()
+        with patch("sniptext.hotkey.subprocess.run", side_effect=RuntimeError("boom")):
+            mgr._show_notification("hello")  # must not raise
+
+
+class TestStop:
+    def test_stop_calls_listener_stop(self):
+        mgr = _make_manager()
+        mgr.listener = MagicMock()
+        mgr.stop()
+        mgr.listener.stop.assert_called_once()
+
+    def test_stop_is_noop_when_no_listener(self):
+        mgr = _make_manager()
+        mgr.listener = None
+        mgr.stop()  # must not raise
+
 
 class TestWaylandDetection:
     def test_wayland_detected_via_wayland_display(self):

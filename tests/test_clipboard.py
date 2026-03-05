@@ -206,7 +206,8 @@ class TestWlCopyTerminateTimeout:
         new_proc.stdin = MagicMock()
 
         with patch("sniptext.clipboard.subprocess.Popen", return_value=new_proc):
-            mgr.copy("hello")
+            with patch("sniptext.clipboard.time.sleep"):
+                mgr.copy("hello")
 
         mock_proc.kill.assert_called_once()
         assert mgr._wl_process is new_proc
@@ -224,7 +225,8 @@ class TestWlCopyTerminateTimeout:
         new_proc.stdin = MagicMock()
 
         with patch("sniptext.clipboard.subprocess.Popen", return_value=new_proc):
-            mgr.copy("hello")
+            with patch("sniptext.clipboard.time.sleep"):
+                mgr.copy("hello")
 
         assert mgr._wl_process is new_proc
 
@@ -241,7 +243,8 @@ class TestWlCopyTerminateTimeout:
         new_proc.stdin = MagicMock()
 
         with patch("sniptext.clipboard.subprocess.Popen", return_value=new_proc):
-            result = mgr.copy("hello")
+            with patch("sniptext.clipboard.time.sleep"):
+                result = mgr.copy("hello")
 
         assert result is True
         assert mgr._wl_process is new_proc
