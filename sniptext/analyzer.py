@@ -184,8 +184,9 @@ class ImageAnalyzer:
         logger.debug("Applied sharpening")
 
         # Reduce brightness for over-exposed images.
-        # After inversion a dark image becomes bright, so skip this
-        # adjustment to avoid over-brightening.
+        # Skip this step for inverted images: the brightness metric and threshold
+        # are based on the original (pre-inversion) image, and we don't want to
+        # further darken content that started out on a dark background.
         if not inverted and brightness > 200:
             enhancer = ImageEnhance.Brightness(image)
             image = enhancer.enhance(0.8)
