@@ -165,3 +165,12 @@ class TestEnhanceForOcr:
 
         output_std = np.array(result.convert("L")).std()
         assert output_std > input_std
+
+    def test_bright_image_gets_dimmed(self, analyzer):
+        """A very bright image (brightness > 200) must trigger brightness reduction."""
+        img = make_image(400, 200, value=240)
+        result = analyzer.enhance_for_ocr(img)
+        brightness_out = np.array(result.convert("L")).mean()
+        # Sharpening can slightly change brightness, but the result must be
+        # meaningfully darker than the raw 240 input.
+        assert brightness_out < 240

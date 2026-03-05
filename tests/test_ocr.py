@@ -225,3 +225,55 @@ class TestOCREngineRecognize:
             )
         assert "hello" in result
         assert "world" in result
+
+
+class TestTesseractBackendRecognize:
+    """Tests for TesseractBackend.recognize() with mocked pytesseract."""
+
+    def _make_backend(self, lang="eng"):
+        config = Config(ocr_language=lang)
+        backend = TesseractBackend(config)
+        backend._available = True
+        backend._tesseract = MagicMock()
+        backend._tesseract.image_to_string.return_value = "  hello world  "
+        return backend
+
+    def test_returns_stripped_text(self):
+        backend = self._make_backend()
+        img = Image.fromarray(
+            __import__("numpy").zeros((100, 400, 3), dtype=__import__("numpy").uint8)
+        )
+        result = backend.recognize(img)
+        assert result == "hello world"
+
+    def test_calls_image_to_string_with_lang(self):
+        backend = self._make_backend(lang="rus")
+        img = Image.fromarray(
+            __import__("numpy").zeros((100, 400, 3), dtype=__import__("numpy").uint8)
+        )
+        backend.recognize(img)
+        call_kwargs = backend._tesseract.image_to_string.call_args
+        assert call_kwargs[1]["lang"] == "rus" or call_kwargs[0][1] == "rus"
+
+    def test_calls_image_to_string_with_psm_config(self):
+        backend = self._make_backend()
+        img = Image.fromarray(
+            __import__("numpy").zeros((100, 400, 3), dtype=__import__("numpy").uint8)
+        )
+        backend.recognize(img)
+        call_kwargs = backend._tesseract.image_to_string.call_args
+        config_str = call_kwargs[1].get("config") or call_kwargs[0][2]
+        assert "--psm" in config_str
+        assert "--oem 1" in config_str
+
+    def test_raises_when_not_available(self):
+        import pytest
+
+        config = Config()
+        backend = TesseractBackend(config)
+        backend._available = False
+        img = Image.fromarray(
+            __import__("numpy").zeros((10, 10, 3), dtype=__import__("numpy").uint8)
+        )
+        with pytest.raises(RuntimeError, match="Tesseract not available"):
+            backend.recognize(img)
