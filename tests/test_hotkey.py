@@ -49,6 +49,19 @@ class TestParseHotkey:
         assert keyboard.Key.cmd in mgr.modifiers
         assert mgr.key == "s"
 
+    def test_no_modifier_logs_warning(self):
+        with patch("sniptext.hotkey.logger.warning") as mock_warn:
+            _make_manager("t")
+        # At least one warning must mention the missing modifier
+        messages = [str(c.args[0]) for c in mock_warn.call_args_list]
+        assert any("modifier" in m.lower() for m in messages)
+
+    def test_with_modifier_no_warning(self):
+        with patch("sniptext.hotkey.logger.warning") as mock_warn:
+            _make_manager("<ctrl>+<alt>+t")
+        messages = [str(c.args[0]) for c in mock_warn.call_args_list]
+        assert not any("modifier" in m.lower() for m in messages)
+
 
 class TestIsHotkeyPressed:
     def test_full_combo_returns_true(self):
@@ -97,6 +110,15 @@ class TestIsHotkeyPressed:
         mgr = _make_manager("<super>+s")
         keys = {keyboard.Key.cmd, "s"}
         assert mgr._is_hotkey_pressed(keys) is True
+
+    def test_no_modifier_hotkey_matches_on_key_alone(self):
+        """When modifiers is empty, any press of the key triggers (modifiers_ok=True)."""
+        mgr = _make_manager("t")  # no modifier — this is intentionally warned about
+        assert mgr._is_hotkey_pressed({"t"}) is True
+
+    def test_no_modifier_hotkey_does_not_match_wrong_key(self):
+        mgr = _make_manager("t")
+        assert mgr._is_hotkey_pressed({"s"}) is False
 
 
 class TestOnHotkeyTriggered:
@@ -149,6 +171,28 @@ class TestOnHotkeyTriggered:
         mgr._on_hotkey_triggered()
 
         assert not mgr._processing.is_set()
+
+    def test_clipboard_failure_does_not_raise(self):
+        mgr = _make_manager()
+        mgr.screen_capture.capture_region.return_value = MagicMock()
+        mgr.ocr_engine.recognize.return_value = "some text"
+        mgr.clipboard_manager.copy.return_value = False
+
+        mgr._on_hotkey_triggered()  # must not raise
+
+        mgr.clipboard_manager.copy.assert_called_once_with("some text")
+
+    def test_notification_sent_on_success(self):
+        mgr = _make_manager()
+        mgr.screen_capture.capture_region.return_value = MagicMock()
+        mgr.ocr_engine.recognize.return_value = "hello"
+        mgr.clipboard_manager.copy.return_value = True
+        mgr.config.notification_enabled = True
+
+        with patch.object(mgr, "_show_notification") as mock_notify:
+            mgr._on_hotkey_triggered()
+
+        mock_notify.assert_called_once()
 
 
 class TestShowNotification:
