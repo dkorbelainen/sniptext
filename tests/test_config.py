@@ -88,3 +88,71 @@ class TestConfigSaveLoad:
         config = Config.load(config_path)
         assert config.hotkey == "<ctrl>+<alt>+t"
         assert not hasattr(config, "totally_unknown_key")
+
+
+class TestConfigValidation:
+    def test_invalid_ocr_engine_resets_to_ensemble(self):
+        config = Config(ocr_engine="foobar")
+        assert config.ocr_engine == "ensemble"
+
+    def test_valid_ocr_engine_accepted(self):
+        for engine in ("ensemble", "tesseract", "easyocr"):
+            assert Config(ocr_engine=engine).ocr_engine == engine
+
+    def test_invalid_display_server_resets_to_auto(self):
+        config = Config(display_server="foobar")
+        assert config.display_server == "auto"
+
+    def test_valid_display_server_accepted(self):
+        for ds in ("auto", "wayland", "x11"):
+            assert Config(display_server=ds).display_server == ds
+
+    def test_zero_confidence_threshold_resets(self):
+        config = Config(ocr_confidence_threshold=0.0)
+        assert config.ocr_confidence_threshold == 0.6
+
+    def test_negative_confidence_threshold_resets(self):
+        config = Config(ocr_confidence_threshold=-0.5)
+        assert config.ocr_confidence_threshold == 0.6
+
+    def test_confidence_threshold_above_one_resets(self):
+        config = Config(ocr_confidence_threshold=1.5)
+        assert config.ocr_confidence_threshold == 0.6
+
+    def test_valid_confidence_threshold_accepted(self):
+        assert Config(ocr_confidence_threshold=1.0).ocr_confidence_threshold == 1.0
+        assert Config(ocr_confidence_threshold=0.01).ocr_confidence_threshold == 0.01
+
+    def test_max_image_size_below_64_resets(self):
+        config = Config(max_image_size=10)
+        assert config.max_image_size == 4096
+
+    def test_max_image_size_non_int_resets(self):
+        config = Config(max_image_size="big")  # type: ignore[arg-type]
+        assert config.max_image_size == 4096
+
+    def test_valid_max_image_size_accepted(self):
+        assert Config(max_image_size=64).max_image_size == 64
+        assert Config(max_image_size=2048).max_image_size == 2048
+
+    # ── type-mismatch inputs (list/dict/None from YAML) ──────────────────────
+
+    def test_ocr_engine_as_list_resets(self):
+        config = Config(ocr_engine=["tesseract"])  # type: ignore[arg-type]
+        assert config.ocr_engine == "ensemble"
+
+    def test_ocr_engine_as_none_resets(self):
+        config = Config(ocr_engine=None)  # type: ignore[arg-type]
+        assert config.ocr_engine == "ensemble"
+
+    def test_display_server_as_dict_resets(self):
+        config = Config(display_server={"value": "wayland"})  # type: ignore[arg-type]
+        assert config.display_server == "auto"
+
+    def test_confidence_threshold_as_string_resets(self):
+        config = Config(ocr_confidence_threshold="high")  # type: ignore[arg-type]
+        assert config.ocr_confidence_threshold == 0.6
+
+    def test_confidence_threshold_as_none_resets(self):
+        config = Config(ocr_confidence_threshold=None)  # type: ignore[arg-type]
+        assert config.ocr_confidence_threshold == 0.6
