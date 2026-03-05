@@ -47,7 +47,7 @@ class Config:
     def _validate(self) -> None:
         """Validate config values, resetting invalid ones to defaults with a warning."""
         valid_engines = {"ensemble", "tesseract", "easyocr"}
-        if self.ocr_engine not in valid_engines:
+        if not isinstance(self.ocr_engine, str) or self.ocr_engine not in valid_engines:
             logger.warning(
                 f"Invalid ocr_engine={self.ocr_engine!r}; must be one of {sorted(valid_engines)}. "
                 "Resetting to 'ensemble'."
@@ -55,43 +55,30 @@ class Config:
             self.ocr_engine = "ensemble"
 
         valid_display = {"auto", "wayland", "x11"}
-        if self.display_server not in valid_display:
+        if not isinstance(self.display_server, str) or self.display_server not in valid_display:
             logger.warning(
                 f"Invalid display_server={self.display_server!r}; must be one of {sorted(valid_display)}. "
                 "Resetting to 'auto'."
             )
             self.display_server = "auto"
-            default_engine = type(self).ocr_engine
-            logger.warning(
-                f"Invalid ocr_engine={self.ocr_engine!r}; must be one of {sorted(valid_engines)}. "
-                f"Resetting to {default_engine!r}."
-            )
-            self.ocr_engine = default_engine
 
-        valid_display = {"auto", "wayland", "x11"}
-        if self.display_server not in valid_display:
-            default_display = type(self).display_server
-            logger.warning(
-                f"Invalid display_server={self.display_server!r}; must be one of {sorted(valid_display)}. "
-                f"Resetting to {default_display!r}."
-            )
-            self.display_server = default_display
-
-        if not (0.0 < self.ocr_confidence_threshold <= 1.0):
-            default_conf_threshold = type(self).ocr_confidence_threshold
+        try:
+            threshold_ok = 0.0 < float(self.ocr_confidence_threshold) <= 1.0
+        except (TypeError, ValueError):
+            threshold_ok = False
+        if not threshold_ok:
             logger.warning(
                 f"Invalid ocr_confidence_threshold={self.ocr_confidence_threshold!r}; "
-                f"must be in (0, 1]. Resetting to {default_conf_threshold!r}."
+                "must be a number in (0, 1]. Resetting to 0.6."
             )
-            self.ocr_confidence_threshold = default_conf_threshold
+            self.ocr_confidence_threshold = 0.6
 
         if not isinstance(self.max_image_size, int) or self.max_image_size < 64:
-            default_max_size = type(self).max_image_size
             logger.warning(
                 f"Invalid max_image_size={self.max_image_size!r}; "
-                f"must be an integer >= 64. Resetting to {default_max_size!r}."
+                "must be an integer >= 64. Resetting to 4096."
             )
-            self.max_image_size = default_max_size
+            self.max_image_size = 4096
 
     @classmethod
     def load(cls, config_path: Path) -> "Config":

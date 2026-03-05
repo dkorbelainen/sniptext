@@ -134,3 +134,25 @@ class TestConfigValidation:
     def test_valid_max_image_size_accepted(self):
         assert Config(max_image_size=64).max_image_size == 64
         assert Config(max_image_size=2048).max_image_size == 2048
+
+    # ── type-mismatch inputs (list/dict/None from YAML) ──────────────────────
+
+    def test_ocr_engine_as_list_resets(self):
+        config = Config(ocr_engine=["tesseract"])  # type: ignore[arg-type]
+        assert config.ocr_engine == "ensemble"
+
+    def test_ocr_engine_as_none_resets(self):
+        config = Config(ocr_engine=None)  # type: ignore[arg-type]
+        assert config.ocr_engine == "ensemble"
+
+    def test_display_server_as_dict_resets(self):
+        config = Config(display_server={"value": "wayland"})  # type: ignore[arg-type]
+        assert config.display_server == "auto"
+
+    def test_confidence_threshold_as_string_resets(self):
+        config = Config(ocr_confidence_threshold="high")  # type: ignore[arg-type]
+        assert config.ocr_confidence_threshold == 0.6
+
+    def test_confidence_threshold_as_none_resets(self):
+        config = Config(ocr_confidence_threshold=None)  # type: ignore[arg-type]
+        assert config.ocr_confidence_threshold == 0.6
