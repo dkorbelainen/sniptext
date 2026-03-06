@@ -154,12 +154,15 @@ def main():
 
         if args.file:
             logger.info(f"Loading image from {args.file}...")
-            from PIL import Image as _PIL_Image
-
-            pil_image = _PIL_Image.open(args.file)
+            from PIL import Image as _PIL_Image, UnidentifiedImageError as _PIL_UnidentifiedImageError
             import numpy as np
 
-            image = np.array(pil_image)
+            try:
+                with _PIL_Image.open(args.file) as pil_image:
+                    image = np.array(pil_image)
+            except (OSError, _PIL_UnidentifiedImageError) as e:
+                logger.error(f"Failed to open image file '{args.file}': {e}")
+                return 2
         elif args.capture_now:
             logger.info("Capturing screen...")
             image = screen_capture.capture_region()
