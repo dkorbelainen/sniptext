@@ -21,6 +21,8 @@ CONFIG_FIELD_COMMENTS: dict[str, str] = {
     "notification_enabled": "Show desktop notification after each capture",
     "enable_text_correction": "Apply automatic spell/OCR error correction",
     "aggressive_correction": "More aggressive correction (may introduce errors)",
+    "history_enabled": "Save each captured text to history file",
+    "history_size": "Maximum number of history entries to keep",
 }
 
 
@@ -51,6 +53,10 @@ class Config:
     # Text correction
     enable_text_correction: bool = True  # Apply OCR error corrections
     aggressive_correction: bool = False  # Apply more aggressive corrections (may introduce errors)
+
+    # History
+    history_enabled: bool = True
+    history_size: int = 50
 
     def __post_init__(self):
         """Post-initialization setup."""
@@ -88,12 +94,27 @@ class Config:
             )
             self.ocr_confidence_threshold = 0.6
 
-        if not isinstance(self.max_image_size, int) or self.max_image_size < 64:
+        if (
+            isinstance(self.max_image_size, bool)
+            or not isinstance(self.max_image_size, int)
+            or self.max_image_size < 64
+        ):
             logger.warning(
                 f"Invalid max_image_size={self.max_image_size!r}; "
                 "must be an integer >= 64. Resetting to 4096."
             )
             self.max_image_size = 4096
+
+        if (
+            isinstance(self.history_size, bool)
+            or not isinstance(self.history_size, int)
+            or self.history_size < 1
+        ):
+            logger.warning(
+                f"Invalid history_size={self.history_size!r}; "
+                "must be a positive integer. Resetting to 50."
+            )
+            self.history_size = 50
 
     @classmethod
     def load(cls, config_path: Path) -> "Config":

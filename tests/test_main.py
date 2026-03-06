@@ -43,6 +43,8 @@ def _run_main(argv, config=None):
         config._render_config.return_value = "hotkey: <ctrl>+<alt>+t\n"
         config.ocr_engine = "ensemble"
         config.notification_enabled = True
+        config.history_enabled = False
+        config.history_size = 50
 
     with (
         patch("sys.argv", ["sniptext"] + argv),
@@ -52,6 +54,7 @@ def _run_main(argv, config=None):
         patch("sniptext.clipboard.ClipboardManager") as MockClipboard,
         patch("sniptext.hotkey.HotkeyManager") as MockHotkey,
         patch("sniptext.__main__.setup_logging"),
+        patch("sniptext.history.HistoryManager"),
     ):
         MockConfig.load.return_value = config
         yield MockConfig, MockOCR, MockCapture, MockClipboard, MockHotkey, config
@@ -285,3 +288,48 @@ class TestOutputFile:
             result = main()
 
         assert result == 1
+
+
+# ---------------------------------------------------------------------------
+# --history
+# ---------------------------------------------------------------------------
+
+
+class TestHistory:
+    def test_history_empty_prints_message(self, capsys):
+        with (
+            patch("sys.argv", ["sniptext", "--history"]),
+            patch("sniptext.config.Config") as MockConfig,
+            patch("sniptext.__main__.setup_logging"),
+            patch("sniptext.history.HistoryManager") as MockHM,
+        ):
+            cfg = MagicMock()
+            cfg.history_size = 50
+            MockConfig.load.return_value = cfg
+            MockHM.return_value.read.return_value = []
+
+            result = main()
+
+        assert result == 0
+        assert "No history" in capsys.readouterr().out
+
+    def test_history_prints_entries(self, capsys):
+        with (
+            patch("sys.argv", ["sniptext", "--history", "5"]),
+            patch("sniptext.config.Config") as MockConfig,
+            patch("sniptext.__main__.setup_logging"),
+            patch("sniptext.history.HistoryManager") as MockHM,
+        ):
+            cfg = MagicMock()
+            cfg.history_size = 50
+            MockConfig.load.return_value = cfg
+            MockHM.return_value.read.return_value = [
+                {"timestamp": "2024-01-01T00:00:00+00:00", "text": "captured text"}
+            ]
+
+            result = main()
+
+        assert result == 0
+        out = capsys.readouterr().out
+        assert "captured text" in out
+        assert "2024-01-01" in out

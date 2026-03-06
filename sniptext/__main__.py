@@ -31,7 +31,12 @@ def setup_logging(verbose: bool = False):
         )
 
 
-def _output_result(text: str, clipboard_manager, output_path: Optional[Path]) -> int:
+def _output_result(
+    text: str,
+    clipboard_manager,
+    output_path: Optional[Path],
+    history_manager=None,
+) -> int:
     """Print, copy, and optionally write OCR result. Returns exit code."""
     if not text:
         print("✗ No text recognized")
@@ -52,6 +57,9 @@ def _output_result(text: str, clipboard_manager, output_path: Optional[Path]) ->
         except OSError as e:
             logger.error(f"Failed to write output file: {e}")
             return 1
+
+    if history_manager is not None:
+        history_manager.append(text)
 
     return 0 if copied else 1
 
@@ -111,6 +119,14 @@ def main():
         metavar="FILE",
         help="Write recognized text to FILE (in addition to clipboard). Only valid with --file or --capture-now.",
     )
+    parser.add_argument(
+        "--history",
+        nargs="?",
+        const=10,
+        type=int,
+        metavar="N",
+        help="Print last N captured texts (default 10) and exit",
+    )
 
     args = parser.parse_args()
 
@@ -118,17 +134,39 @@ def main():
         parser.error(
             "--output requires either --file or --capture-now; it is not supported in hotkey-only mode."
         )
-    from sniptext.capture import ScreenCapture
-    from sniptext.clipboard import ClipboardManager
+
     from sniptext.config import Config
-    from sniptext.hotkey import HotkeyManager
-    from sniptext.ocr import OCREngine
+    from sniptext.history import HistoryManager
 
     setup_logging(args.verbose)
     logger.info("Starting SnipText...")
 
     config = Config.load(args.config)
     logger.info(f"Loaded configuration from {args.config}")
+
+    if args.history is not None:
+        history_manager = HistoryManager(max_size=config.history_size)
+        entries = history_manager.read(args.history)
+        if not entries:
+            print("No history yet.")
+        else:
+            for entry in entries:
+                timestamp = entry.get("timestamp")
+                text = entry.get("text")
+                if timestamp is None or text is None:
+                    logger.warning(
+                        "Skipping invalid history entry without required fields: {}", entry
+                    )
+                    continue
+                print(f"[{timestamp}]")
+                print(text)
+                print()
+        return 0
+
+    from sniptext.capture import ScreenCapture
+    from sniptext.clipboard import ClipboardManager
+    from sniptext.hotkey import HotkeyManager
+    from sniptext.ocr import OCREngine
 
     if args.list_models:
         ocr = OCREngine(config)
@@ -147,6 +185,9 @@ def main():
 
     hotkey_manager = None
     clipboard_manager = None
+    history_manager = (
+        HistoryManager(max_size=config.history_size) if config.history_enabled else None
+    )
     try:
         ocr_engine = OCREngine(config)
         clipboard_manager = ClipboardManager()
@@ -178,7 +219,7 @@ def main():
         if image is not None:
             logger.info("Running OCR...")
             text = ocr_engine.recognize(image)
-            rc = _output_result(text, clipboard_manager, args.output)
+            rc = _output_result(text, clipboard_manager, args.output, history_manager)
             if rc != 0:
                 return rc
         else:
@@ -189,6 +230,7 @@ def main():
                 screen_capture=screen_capture,
                 ocr_engine=ocr_engine,
                 clipboard_manager=clipboard_manager,
+                history_manager=history_manager,
             )
 
             print(f"\nSnipText {__version__} is running")
