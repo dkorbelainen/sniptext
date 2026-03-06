@@ -61,6 +61,11 @@ def main():
         action="store_true",
         help="List available OCR models",
     )
+    parser.add_argument(
+        "--print-config",
+        action="store_true",
+        help="Print current configuration and exit",
+    )
 
     args = parser.parse_args()
 
@@ -81,6 +86,10 @@ def main():
         ocr = OCREngine(config)
         for name in ocr.get_available_backends():
             logger.info(f"  - {name}")
+        return 0
+
+    if args.print_config:
+        print(config._render_config(), end="")
         return 0
 
     if args.ocr_engine:

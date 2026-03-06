@@ -156,3 +156,33 @@ class TestConfigValidation:
     def test_confidence_threshold_as_none_resets(self):
         config = Config(ocr_confidence_threshold=None)  # type: ignore[arg-type]
         assert config.ocr_confidence_threshold == 0.6
+
+
+class TestRenderConfig:
+    def test_output_is_valid_yaml(self):
+        import yaml
+
+        output = Config()._render_config()
+        data = yaml.safe_load(output)
+        assert data["ocr_engine"] == "ensemble"
+
+    def test_comments_present_for_key_fields(self):
+        output = Config()._render_config()
+        assert "# " in output
+        assert "ocr_engine" in output
+        assert "ensemble" in output
+
+    def test_round_trip_preserves_values(self, tmp_path):
+        c1 = Config(ocr_language="eng+rus", ocr_confidence_threshold=0.75)
+        path = tmp_path / "config.yaml"
+        c1.save(path)
+        c2 = Config.load(path)
+        assert c2.ocr_language == "eng+rus"
+        assert c2.ocr_confidence_threshold == 0.75
+
+    def test_all_fields_present_in_output(self):
+        import dataclasses
+
+        output = Config()._render_config()
+        for f in dataclasses.fields(Config):
+            assert f.name in output, f"Field {f.name!r} missing from rendered config"
