@@ -154,8 +154,13 @@ def main():
             print("No history yet.")
         else:
             for entry in entries:
-                print(f"[{entry['timestamp']}]")
-                print(entry["text"])
+                timestamp = entry.get("timestamp")
+                text = entry.get("text")
+                if timestamp is None or text is None:
+                    logger.warning("Skipping invalid history entry without required fields: {}", entry)
+                    continue
+                print(f"[{timestamp}]")
+                print(text)
                 print()
         return 0
 
