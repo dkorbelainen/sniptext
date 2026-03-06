@@ -2,7 +2,12 @@
 
 import pytest
 
-from sniptext.corrector import OCRCorrector, correct_ocr_text, detect_dominant_language
+from sniptext.corrector import (
+    OCRCorrector,
+    _char_matches_lang,
+    correct_ocr_text,
+    detect_dominant_language,
+)
 
 
 def test_basic_corrections():
@@ -150,6 +155,11 @@ class TestDetectDominantLanguage:
         result = detect_dominant_language(text, ["eng", "xyz_unknown"])
         assert result in ("eng", "xyz_unknown")
 
+    def test_fallback_when_no_script_matches(self):
+        # Arabic text against Latin/Cyrillic candidates → all scores 0 → first candidate
+        result = detect_dominant_language("مرحبا", ["eng", "rus"])
+        assert result == "eng"
+
 
 def test_punctuation_spacing_works_for_cyrillic():
     """After the fix, punct+letter space rule applies to Cyrillic text."""
@@ -186,6 +196,40 @@ def test_spell_correct_uppercase_word_stays_uppercase():
     first_token = result.split()[0]
     assert first_token in ("WRODS", "WORDS")
     assert first_token.upper() == first_token
+
+
+class TestCharMatchesLang:
+    """Direct tests for _char_matches_lang to cover each script branch."""
+
+    def test_chinese_simplified_matches(self):
+        assert _char_matches_lang(0x4E2D, "chi_sim")  # 中
+
+    def test_hebrew_matches(self):
+        assert _char_matches_lang(0x05D0, "heb")  # א
+
+    def test_greek_matches(self):
+        assert _char_matches_lang(0x03B1, "ell")  # α
+
+    def test_thai_matches(self):
+        assert _char_matches_lang(0x0E01, "tha")  # ก
+
+    def test_no_script_match_returns_false(self):
+        # Unknown lang code should never match
+        assert not _char_matches_lang(ord("A"), "xyz_unknown")
+
+
+class TestSpellCorrectEdgeCases:
+    def test_all_punctuation_word_unchanged(self):
+        corrector = OCRCorrector("eng")
+        # A "word" that is entirely punctuation strips to empty → kept as-is
+        result = corrector.correct("hello ... world")
+        assert "..." in result
+
+    def test_spell_correct_skips_when_no_spellchecker(self):
+        corrector = OCRCorrector("eng")
+        corrector._spellchecker = None
+        # _spell_correct should return text unchanged when no spellchecker
+        assert corrector._spell_correct("wrods") == "wrods"
 
 
 if __name__ == "__main__":
