@@ -124,7 +124,7 @@ class Config:
             "hotkey": "Global hotkey to trigger capture (e.g. <ctrl>+<alt>+t)",
             "display_server": "Display server: auto, wayland, or x11",
             "ocr_engine": "OCR engine: ensemble (recommended), tesseract, or easyocr",
-            "ocr_model_path": "Directory for EasyOCR model files (leave blank for default)",
+            "ocr_model_path": "Directory for EasyOCR model files (omit or set to null for default)",
             "ocr_language": "Tesseract language code(s), e.g. eng, rus, eng+rus",
             "ocr_confidence_threshold": "Minimum OCR confidence to accept a result (0.0–1.0)",
             "adaptive_ensemble": "Auto-select fast/ensemble mode based on image quality",
