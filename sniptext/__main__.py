@@ -107,11 +107,15 @@ def main():
         "--output",
         type=Path,
         metavar="FILE",
-        help="Write recognized text to FILE (in addition to clipboard)",
+        help="Write recognized text to FILE (in addition to clipboard). Only valid with --file or --capture-now.",
     )
 
     args = parser.parse_args()
 
+    if args.output and not (args.file or args.capture_now):
+        parser.error(
+            "--output requires either --file or --capture-now; it is not supported in hotkey-only mode."
+        )
     from sniptext.capture import ScreenCapture
     from sniptext.clipboard import ClipboardManager
     from sniptext.config import Config
