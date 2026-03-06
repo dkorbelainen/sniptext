@@ -134,12 +134,9 @@ def main():
         parser.error(
             "--output requires either --file or --capture-now; it is not supported in hotkey-only mode."
         )
-    from sniptext.capture import ScreenCapture
-    from sniptext.clipboard import ClipboardManager
+
     from sniptext.config import Config
     from sniptext.history import HistoryManager
-    from sniptext.hotkey import HotkeyManager
-    from sniptext.ocr import OCREngine
 
     setup_logging(args.verbose)
     logger.info("Starting SnipText...")
@@ -157,12 +154,19 @@ def main():
                 timestamp = entry.get("timestamp")
                 text = entry.get("text")
                 if timestamp is None or text is None:
-                    logger.warning("Skipping invalid history entry without required fields: {}", entry)
+                    logger.warning(
+                        "Skipping invalid history entry without required fields: {}", entry
+                    )
                     continue
                 print(f"[{timestamp}]")
                 print(text)
                 print()
         return 0
+
+    from sniptext.capture import ScreenCapture
+    from sniptext.clipboard import ClipboardManager
+    from sniptext.hotkey import HotkeyManager
+    from sniptext.ocr import OCREngine
 
     if args.list_models:
         ocr = OCREngine(config)

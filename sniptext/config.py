@@ -94,14 +94,22 @@ class Config:
             )
             self.ocr_confidence_threshold = 0.6
 
-        if not isinstance(self.max_image_size, int) or self.max_image_size < 64:
+        if (
+            isinstance(self.max_image_size, bool)
+            or not isinstance(self.max_image_size, int)
+            or self.max_image_size < 64
+        ):
             logger.warning(
                 f"Invalid max_image_size={self.max_image_size!r}; "
                 "must be an integer >= 64. Resetting to 4096."
             )
             self.max_image_size = 4096
 
-        if not isinstance(self.history_size, int) or self.history_size < 1:
+        if (
+            isinstance(self.history_size, bool)
+            or not isinstance(self.history_size, int)
+            or self.history_size < 1
+        ):
             logger.warning(
                 f"Invalid history_size={self.history_size!r}; "
                 "must be a positive integer. Resetting to 50."

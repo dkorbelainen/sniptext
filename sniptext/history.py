@@ -1,6 +1,7 @@
 """Capture history management for SnipText."""
 
 import json
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
@@ -16,6 +17,7 @@ class HistoryManager:
     def __init__(self, path: Path = _DEFAULT_HISTORY_PATH, max_size: int = 50) -> None:
         self.path = path
         self.max_size = max_size
+        self._lock = threading.Lock()
 
     def append(self, text: str) -> None:
         """Append a captured text entry; trims the file to max_size entries."""
@@ -27,14 +29,17 @@ class HistoryManager:
         }
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            with self.path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-            self._trim()
+            with self._lock:
+                with self.path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                self._trim_locked()
         except OSError as e:
             logger.warning(f"Could not write to history file: {e}")
 
     def read(self, n: int = 10) -> List[dict]:
         """Return the last *n* history entries, oldest first."""
+        if n <= 0:
+            return []
         if not self.path.exists():
             return []
         try:
@@ -58,8 +63,8 @@ class HistoryManager:
                 logger.debug(f"Skipping invalid history entry (unexpected structure): {obj!r}")
         return entries[-n:]
 
-    def _trim(self) -> None:
-        """Keep only the last max_size entries in the file."""
+    def _trim_locked(self) -> None:
+        """Keep only the last max_size entries. Must be called with self._lock held."""
         try:
             lines = [ln for ln in self.path.read_text(encoding="utf-8").splitlines() if ln.strip()]
         except OSError:

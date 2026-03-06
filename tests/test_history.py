@@ -65,6 +65,16 @@ class TestHistoryTrim:
 
 
 class TestHistoryRead:
+    def test_read_zero_returns_empty(self, tmp_path):
+        hm = HistoryManager(path=tmp_path / "history.jsonl", max_size=50)
+        hm.append("something")
+        assert hm.read(0) == []
+
+    def test_read_negative_returns_empty(self, tmp_path):
+        hm = HistoryManager(path=tmp_path / "history.jsonl", max_size=50)
+        hm.append("something")
+        assert hm.read(-5) == []
+
     def test_read_returns_empty_when_no_file(self, tmp_path):
         hm = HistoryManager(path=tmp_path / "history.jsonl", max_size=50)
         assert hm.read() == []

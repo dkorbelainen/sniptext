@@ -157,6 +157,21 @@ class TestConfigValidation:
         config = Config(ocr_confidence_threshold=None)  # type: ignore[arg-type]
         assert config.ocr_confidence_threshold == 0.6
 
+    def test_history_size_as_bool_resets(self):
+        config = Config(history_size=True)  # type: ignore[arg-type]
+        assert config.history_size == 50
+
+    def test_max_image_size_as_bool_resets(self):
+        config = Config(max_image_size=True)  # type: ignore[arg-type]
+        assert config.max_image_size == 4096
+
+    def test_history_size_zero_resets(self):
+        config = Config(history_size=0)
+        assert config.history_size == 50
+
+    def test_history_size_valid_accepted(self):
+        assert Config(history_size=100).history_size == 100
+
 
 class TestRenderConfig:
     def test_output_is_valid_yaml(self):
