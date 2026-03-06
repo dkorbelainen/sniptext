@@ -48,9 +48,14 @@ class HistoryManager:
             if not line:
                 continue
             try:
-                entries.append(json.loads(line))
+                obj = json.loads(line)
             except json.JSONDecodeError:
                 logger.debug(f"Skipping malformed history line: {line!r}")
+                continue
+            if isinstance(obj, dict) and "timestamp" in obj and "text" in obj:
+                entries.append(obj)
+            else:
+                logger.debug(f"Skipping invalid history entry (unexpected structure): {obj!r}")
         return entries[-n:]
 
     def _trim(self) -> None:
