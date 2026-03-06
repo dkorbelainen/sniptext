@@ -12,6 +12,8 @@ from .clipboard import ClipboardManager
 from .config import Config
 from .ocr import OCREngine
 
+_NOTIFICATION_PREVIEW_LEN = 50
+
 
 class HotkeyManager:
     """Manages global hotkeys for screen capture."""
@@ -222,6 +224,8 @@ class HotkeyManager:
 
             if not text:
                 logger.warning("No text recognized")
+                if self.config.notification_enabled:
+                    self._show_notification("No text found in selected area")
                 return
 
             logger.info("Copying to clipboard...")
@@ -235,7 +239,9 @@ class HotkeyManager:
                 )
 
                 if self.config.notification_enabled:
-                    self._show_notification(f"Copied {len(text)} characters")
+                    preview = text[:_NOTIFICATION_PREVIEW_LEN].replace("\n", " ")
+                    suffix = "…" if len(text) > _NOTIFICATION_PREVIEW_LEN else ""
+                    self._show_notification(f"✓ {preview}{suffix}")
             else:
                 logger.error("Failed to copy to clipboard")
 

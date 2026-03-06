@@ -16,12 +16,18 @@ __version__ = _pkg_version("sniptext")
 def setup_logging(verbose: bool = False):
     """Setup logging configuration."""
     logger.remove()
-    level = "DEBUG" if verbose else "INFO"
-    logger.add(
-        sys.stderr,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
-        level=level,
-    )
+    if verbose:
+        logger.add(
+            sys.stderr,
+            format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
+            level="DEBUG",
+        )
+    else:
+        logger.add(
+            sys.stderr,
+            format="<level>{level: <8}</level> {message}",
+            level="INFO",
+        )
 
 
 def main():
@@ -59,7 +65,7 @@ def main():
     parser.add_argument(
         "--list-models",
         action="store_true",
-        help="List available OCR models",
+        help="List available OCR backends",
     )
     parser.add_argument(
         "--print-config",
@@ -82,29 +88,20 @@ def main():
     logger.info(f"Loaded configuration from {args.config}")
 
     if args.list_models:
-        logger.info("Available OCR models:")
         ocr = OCREngine(config)
+        print("Available OCR backends:")
         for name in ocr.get_available_backends():
-            logger.info(f"  - {name}")
+            print(f"  • {name}")
         return 0
 
     if args.print_config:
-        # Prefer public config rendering methods, fall back to private helper for compatibility
-        render_fn = None
-        for attr_name in ("render_config", "to_commented_yaml"):
-            candidate = getattr(config, attr_name, None)
-            if callable(candidate):
-                render_fn = candidate
-                break
-        if render_fn is not None:
-            print(render_fn(), end="")
+        # Prefer a public render_config() method if available, fall back to the private helper for compatibility
+        render = getattr(config, "render_config", None)
+        if callable(render):
+            print(render(), end="")
         else:
-            # Backward-compatibility: use private helper if available, otherwise str(config)
-            private_render = getattr(config, "_render_config", None)
-            if callable(private_render):
-                print(private_render(), end="")
-            else:
-                print(str(config), end="")
+            private_render = getattr(config, "_render_config")
+            print(private_render(), end="")
         return 0
 
     if args.ocr_engine:
@@ -129,12 +126,16 @@ def main():
                 text = ocr_engine.recognize(image)
 
                 if text:
-                    logger.info(f"Recognized text ({len(text)} chars)")
-                    clipboard_manager.copy(text)
-                    logger.info("Text copied to clipboard")
-                    print(text)
+                    copied = clipboard_manager.copy(text)
+                    if copied:
+                        print(f"✓ Copied {len(text)} characters to clipboard:\n")
+                        print(text)
+                    else:
+                        logger.error("Failed to copy text to clipboard")
+                        print(text)
+                        return 1
                 else:
-                    logger.warning("No text recognized")
+                    print("✗ No text recognized in the selected area")
             else:
                 logger.error("Failed to capture screen")
                 return 1
@@ -147,12 +148,11 @@ def main():
                 clipboard_manager=clipboard_manager,
             )
 
-            print("\nSnipText is now running!")
-            print(f"  Hotkey: {config.hotkey}")
-            print(f"  OCR: {config.ocr_engine}")
-            print(f"  Config: {args.config}")
-            print(f"\nPress {config.hotkey} to capture screen and extract text")
-            print("Press Ctrl+C to exit\n")
+            print(f"\nSnipText {__version__} is running")
+            print(f"  Hotkey  : {config.hotkey}")
+            print(f"  Engine  : {config.ocr_engine}")
+            print(f"  Config  : {args.config}")
+            print("\nPress Ctrl+C to quit\n")
 
             hotkey_manager.start()
 
