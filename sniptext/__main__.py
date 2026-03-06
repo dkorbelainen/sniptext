@@ -61,6 +61,11 @@ def main():
         action="store_true",
         help="List available OCR models",
     )
+    parser.add_argument(
+        "--print-config",
+        action="store_true",
+        help="Print current configuration and exit",
+    )
 
     args = parser.parse_args()
 
@@ -81,6 +86,25 @@ def main():
         ocr = OCREngine(config)
         for name in ocr.get_available_backends():
             logger.info(f"  - {name}")
+        return 0
+
+    if args.print_config:
+        # Prefer public config rendering methods, fall back to private helper for compatibility
+        render_fn = None
+        for attr_name in ("render_config", "to_commented_yaml"):
+            candidate = getattr(config, attr_name, None)
+            if callable(candidate):
+                render_fn = candidate
+                break
+        if render_fn is not None:
+            print(render_fn(), end="")
+        else:
+            # Backward-compatibility: use private helper if available, otherwise str(config)
+            private_render = getattr(config, "_render_config", None)
+            if callable(private_render):
+                print(private_render(), end="")
+            else:
+                print(str(config), end="")
         return 0
 
     if args.ocr_engine:
