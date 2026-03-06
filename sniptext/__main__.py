@@ -131,7 +131,10 @@ def main():
         "--profile",
         type=str,
         metavar="NAME",
-        help="Apply a named config profile from ~/.config/sniptext/profiles/NAME.yaml",
+        help=(
+            "Apply a named config profile from PROFILES_DIR/NAME.yaml, where PROFILES_DIR is the "
+            "'profiles' directory next to the config file (default: ~/.config/sniptext/profiles)"
+        ),
     )
     parser.add_argument(
         "--list-profiles",
