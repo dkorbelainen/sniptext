@@ -117,6 +117,18 @@ class Config:
             self.history_size = 50
 
     @classmethod
+    def _profiles_dir(cls, config_path: Path) -> Path:
+        return config_path.parent / "profiles"
+
+    @classmethod
+    def list_profiles(cls, config_path: Path) -> list:
+        """Return sorted profile names available in the profiles directory."""
+        profiles_dir = cls._profiles_dir(config_path)
+        if not profiles_dir.exists():
+            return []
+        return sorted(p.stem for p in profiles_dir.glob("*.yaml"))
+
+    @classmethod
     def load(cls, config_path: Path) -> "Config":
         """Load configuration from YAML file."""
         if not config_path.exists():
@@ -126,6 +138,34 @@ class Config:
 
         with open(config_path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
+
+        return cls._build(data)
+
+    @classmethod
+    def load_with_profile(cls, config_path: Path, profile_name: str) -> "Config":
+        """Load base config then apply profile overrides."""
+        if not config_path.exists():
+            base_config = cls()
+            base_config.save(config_path)
+            base_data: dict = {}
+        else:
+            with open(config_path, "r", encoding="utf-8") as f:
+                base_data = yaml.safe_load(f) or {}
+
+        profile_path = cls._profiles_dir(config_path) / f"{profile_name}.yaml"
+        if not profile_path.exists():
+            raise FileNotFoundError(f"Profile {profile_name!r} not found at {profile_path}")
+
+        with open(profile_path, "r", encoding="utf-8") as f:
+            overrides = yaml.safe_load(f) or {}
+
+        merged = {**base_data, **overrides}
+        logger.info(f"Applied profile {profile_name!r} ({len(overrides)} override(s))")
+        return cls._build(merged)
+
+    @classmethod
+    def _build(cls, data: dict) -> "Config":
+        """Build a Config from a raw data dict (handles deprecated/unknown keys)."""
 
         # Remove all old/unused parameters
         deprecated = [

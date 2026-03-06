@@ -333,3 +333,50 @@ class TestHistory:
         out = capsys.readouterr().out
         assert "captured text" in out
         assert "2024-01-01" in out
+
+
+# ---------------------------------------------------------------------------
+# --profile / --list-profiles
+# ---------------------------------------------------------------------------
+
+
+class TestProfiles:
+    def test_list_profiles_no_profiles(self, capsys):
+        with (
+            patch("sys.argv", ["sniptext", "--list-profiles"]),
+            patch("sniptext.config.Config") as MockConfig,
+            patch("sniptext.__main__.setup_logging"),
+        ):
+            MockConfig.list_profiles.return_value = []
+            result = main()
+
+        assert result == 0
+        assert "No profiles" in capsys.readouterr().out
+
+    def test_list_profiles_shows_names(self, capsys):
+        with (
+            patch("sys.argv", ["sniptext", "--list-profiles"]),
+            patch("sniptext.config.Config") as MockConfig,
+            patch("sniptext.__main__.setup_logging"),
+        ):
+            MockConfig.list_profiles.return_value = ["fast", "gpu"]
+            result = main()
+
+        assert result == 0
+        out = capsys.readouterr().out
+        assert "fast" in out
+        assert "gpu" in out
+
+    def test_profile_missing_returns_one(self, capsys):
+        with (
+            patch("sys.argv", ["sniptext", "--profile", "nosuch", "--capture-now"]),
+            patch("sniptext.config.Config") as MockConfig,
+            patch("sniptext.__main__.setup_logging"),
+        ):
+            MockConfig.load_with_profile.side_effect = FileNotFoundError(
+                "Profile 'nosuch' not found"
+            )
+            result = main()
+
+        assert result == 1
+        assert "nosuch" in capsys.readouterr().out

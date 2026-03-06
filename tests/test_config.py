@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from sniptext.config import Config
 
 
@@ -204,3 +206,50 @@ class TestRenderConfig:
         loaded_keys = set(yaml.safe_load(output).keys())
         expected_keys = {f.name for f in dataclasses.fields(Config)}
         assert expected_keys <= loaded_keys
+
+
+class TestConfigProfiles:
+    def test_list_profiles_empty_when_no_dir(self, tmp_path):
+        config_path = tmp_path / "config.yaml"
+        assert Config.list_profiles(config_path) == []
+
+    def test_list_profiles_returns_stems(self, tmp_path):
+        config_path = tmp_path / "config.yaml"
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+        (profiles_dir / "fast.yaml").write_text("ocr_engine: tesseract\n")
+        (profiles_dir / "gpu.yaml").write_text("use_gpu: true\n")
+        assert Config.list_profiles(config_path) == ["fast", "gpu"]
+
+    def test_load_with_profile_applies_override(self, tmp_path):
+        config_path = tmp_path / "config.yaml"
+        Config().save(config_path)
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+        (profiles_dir / "fast.yaml").write_text("ocr_engine: tesseract\n")
+        config = Config.load_with_profile(config_path, "fast")
+        assert config.ocr_engine == "tesseract"
+
+    def test_load_with_profile_keeps_base_fields(self, tmp_path):
+        config_path = tmp_path / "config.yaml"
+        base = Config(ocr_language="rus")
+        base.save(config_path)
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+        (profiles_dir / "fast.yaml").write_text("ocr_engine: tesseract\n")
+        config = Config.load_with_profile(config_path, "fast")
+        assert config.ocr_language == "rus"
+        assert config.ocr_engine == "tesseract"
+
+    def test_load_with_profile_missing_raises(self, tmp_path):
+        config_path = tmp_path / "config.yaml"
+        with pytest.raises(FileNotFoundError, match="no-such"):
+            Config.load_with_profile(config_path, "no-such")
+
+    def test_load_with_profile_no_base_config(self, tmp_path):
+        config_path = tmp_path / "config.yaml"
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+        (profiles_dir / "fast.yaml").write_text("ocr_engine: tesseract\n")
+        config = Config.load_with_profile(config_path, "fast")
+        assert config.ocr_engine == "tesseract"

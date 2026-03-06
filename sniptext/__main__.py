@@ -127,6 +127,17 @@ def main():
         metavar="N",
         help="Print last N captured texts (default 10) and exit",
     )
+    parser.add_argument(
+        "--profile",
+        type=str,
+        metavar="NAME",
+        help="Apply a named config profile from ~/.config/sniptext/profiles/NAME.yaml",
+    )
+    parser.add_argument(
+        "--list-profiles",
+        action="store_true",
+        help="List available config profiles and exit",
+    )
 
     args = parser.parse_args()
 
@@ -141,7 +152,27 @@ def main():
     setup_logging(args.verbose)
     logger.info("Starting SnipText...")
 
-    config = Config.load(args.config)
+    if args.list_profiles:
+        profiles = Config.list_profiles(args.config)
+        if not profiles:
+            print("No profiles found.")
+            print(f"  Create YAML files in: {args.config.parent / 'profiles'}/")
+        else:
+            print("Available profiles:")
+            for name in profiles:
+                print(f"  • {name}")
+        return 0
+
+    if args.profile:
+        try:
+            config = Config.load_with_profile(args.config, args.profile)
+        except FileNotFoundError as e:
+            print(f"✗ {e}")
+            print("  Run 'sniptext --list-profiles' to see available profiles.")
+            return 1
+        logger.info(f"Loaded config with profile {args.profile!r}")
+    else:
+        config = Config.load(args.config)
     logger.info(f"Loaded configuration from {args.config}")
 
     if args.history is not None:
