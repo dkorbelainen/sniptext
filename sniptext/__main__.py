@@ -95,7 +95,13 @@ def main():
         return 0
 
     if args.print_config:
-        print(config._render_config(), end="")
+        # Prefer a public render_config() method if available, fall back to the private helper for compatibility
+        render = getattr(config, "render_config", None)
+        if callable(render):
+            print(render(), end="")
+        else:
+            private_render = getattr(config, "_render_config")
+            print(private_render(), end="")
         return 0
 
     if args.ocr_engine:
