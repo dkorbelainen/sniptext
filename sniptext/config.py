@@ -8,6 +8,21 @@ from typing import Optional
 import yaml
 from loguru import logger
 
+CONFIG_FIELD_COMMENTS: dict[str, str] = {
+    "hotkey": "Global hotkey to trigger capture (e.g. <ctrl>+<alt>+t)",
+    "display_server": "Display server: auto, wayland, or x11",
+    "ocr_engine": "OCR engine: ensemble (recommended), tesseract, or easyocr",
+    "ocr_model_path": "Directory for EasyOCR model files (leave blank for default)",
+    "ocr_language": "Tesseract language code(s), e.g. eng, rus, eng+rus",
+    "ocr_confidence_threshold": "Minimum OCR confidence to accept a result (0.0–1.0)",
+    "adaptive_ensemble": "Auto-select fast/ensemble mode based on image quality",
+    "max_image_size": "Resize images larger than this (pixels) before OCR",
+    "use_gpu": "Use GPU acceleration for EasyOCR when available (requires CUDA)",
+    "notification_enabled": "Show desktop notification after each capture",
+    "enable_text_correction": "Apply automatic spell/OCR error correction",
+    "aggressive_correction": "More aggressive correction (may introduce errors)",
+}
+
 
 @dataclass
 class Config:
@@ -120,28 +135,13 @@ class Config:
 
     def _render_config(self) -> str:
         """Render configuration as a YAML string with inline comments."""
-        _COMMENTS: dict[str, str] = {
-            "hotkey": "Global hotkey to trigger capture (e.g. <ctrl>+<alt>+t)",
-            "display_server": "Display server: auto, wayland, or x11",
-            "ocr_engine": "OCR engine: ensemble (recommended), tesseract, or easyocr",
-            "ocr_model_path": "Directory for EasyOCR model files (leave blank for default)",
-            "ocr_language": "Tesseract language code(s), e.g. eng, rus, eng+rus",
-            "ocr_confidence_threshold": "Minimum OCR confidence to accept a result (0.0–1.0)",
-            "adaptive_ensemble": "Auto-select fast/ensemble mode based on image quality",
-            "max_image_size": "Resize images larger than this (pixels) before OCR",
-            "use_gpu": "Use GPU acceleration for EasyOCR when available (requires CUDA)",
-            "notification_enabled": "Show desktop notification after each capture",
-            "enable_text_correction": "Apply automatic spell/OCR error correction",
-            "aggressive_correction": "More aggressive correction (may introduce errors)",
-        }
-
         lines: list[str] = []
         for f in dataclasses.fields(self):
             value = getattr(self, f.name)
             if isinstance(value, Path):
                 value = str(value)
             serialized = yaml.dump({f.name: value}, default_flow_style=False).rstrip()
-            comment = _COMMENTS.get(f.name)
+            comment = CONFIG_FIELD_COMMENTS.get(f.name)
             if comment:
                 lines.append(f"# {comment}")
             lines.append(serialized)

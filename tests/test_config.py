@@ -183,6 +183,9 @@ class TestRenderConfig:
     def test_all_fields_present_in_output(self):
         import dataclasses
 
+        import yaml
+
         output = Config()._render_config()
-        for f in dataclasses.fields(Config):
-            assert f.name in output, f"Field {f.name!r} missing from rendered config"
+        loaded_keys = set(yaml.safe_load(output).keys())
+        expected_keys = {f.name for f in dataclasses.fields(Config)}
+        assert expected_keys <= loaded_keys
