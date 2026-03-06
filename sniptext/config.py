@@ -140,7 +140,7 @@ class Config:
             value = getattr(self, f.name)
             if isinstance(value, Path):
                 value = str(value)
-            serialized = yaml.dump({f.name: value}, default_flow_style=False).rstrip()
+            serialized = yaml.safe_dump({f.name: value}, default_flow_style=False).rstrip()
             comment = CONFIG_FIELD_COMMENTS.get(f.name)
             if comment:
                 lines.append(f"# {comment}")
