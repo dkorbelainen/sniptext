@@ -253,3 +253,17 @@ class TestConfigProfiles:
         (profiles_dir / "fast.yaml").write_text("ocr_engine: tesseract\n")
         config = Config.load_with_profile(config_path, "fast")
         assert config.ocr_engine == "tesseract"
+
+    def test_missing_profile_does_not_create_base_config(self, tmp_path):
+        config_path = tmp_path / "config.yaml"
+        with pytest.raises(FileNotFoundError):
+            Config.load_with_profile(config_path, "no-such")
+        assert not config_path.exists()
+
+    def test_malformed_profile_yaml_raises(self, tmp_path):
+        config_path = tmp_path / "config.yaml"
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+        (profiles_dir / "bad.yaml").write_text("- item1\n- item2\n")  # list, not mapping
+        with pytest.raises(ValueError, match="mapping"):
+            Config.load_with_profile(config_path, "bad")

@@ -121,7 +121,7 @@ class Config:
         return config_path.parent / "profiles"
 
     @classmethod
-    def list_profiles(cls, config_path: Path) -> list:
+    def list_profiles(cls, config_path: Path) -> list[str]:
         """Return sorted profile names available in the profiles directory."""
         profiles_dir = cls._profiles_dir(config_path)
         if not profiles_dir.exists():
@@ -144,20 +144,30 @@ class Config:
     @classmethod
     def load_with_profile(cls, config_path: Path, profile_name: str) -> "Config":
         """Load base config then apply profile overrides."""
-        if not config_path.exists():
-            base_config = cls()
-            base_config.save(config_path)
-            base_data: dict = {}
-        else:
-            with open(config_path, "r", encoding="utf-8") as f:
-                base_data = yaml.safe_load(f) or {}
-
+        # Check profile exists before touching the base config file.
         profile_path = cls._profiles_dir(config_path) / f"{profile_name}.yaml"
         if not profile_path.exists():
             raise FileNotFoundError(f"Profile {profile_name!r} not found at {profile_path}")
 
         with open(profile_path, "r", encoding="utf-8") as f:
             overrides = yaml.safe_load(f) or {}
+        if not isinstance(overrides, dict):
+            raise ValueError(
+                f"Profile {profile_name!r} must be a YAML mapping, got {type(overrides).__name__}"
+            )
+
+        if not config_path.exists():
+            base_config = cls()
+            base_config.save(config_path)
+            base_data: dict[str, object] = {}
+        else:
+            with open(config_path, "r", encoding="utf-8") as f:
+                raw = yaml.safe_load(f) or {}
+            if not isinstance(raw, dict):
+                raise ValueError(
+                    f"Config file {config_path} must be a YAML mapping, got {type(raw).__name__}"
+                )
+            base_data = raw
 
         merged = {**base_data, **overrides}
         logger.info(f"Applied profile {profile_name!r} ({len(overrides)} override(s))")
