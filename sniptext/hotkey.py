@@ -24,6 +24,7 @@ class HotkeyManager:
         screen_capture: ScreenCapture,
         ocr_engine: OCREngine,
         clipboard_manager: ClipboardManager,
+        history_manager=None,
     ):
         """
         Initialize hotkey manager.
@@ -33,11 +34,13 @@ class HotkeyManager:
             screen_capture: Screen capture instance
             ocr_engine: OCR engine instance
             clipboard_manager: Clipboard manager instance
+            history_manager: Optional HistoryManager for saving captures
         """
         self.config = config
         self.screen_capture = screen_capture
         self.ocr_engine = ocr_engine
         self.clipboard_manager = clipboard_manager
+        self.history_manager = history_manager
 
         self.listener = None
         # threading.Event provides atomic is_set/set/clear across threads,
@@ -237,6 +240,9 @@ class HotkeyManager:
                     f"Recognized {len(text)} characters in {total_time:.3f}s "
                     f"(capture: {capture_time:.3f}s, OCR: {ocr_time:.3f}s)"
                 )
+
+                if self.history_manager is not None:
+                    self.history_manager.append(text)
 
                 if self.config.notification_enabled:
                     preview = text[:_NOTIFICATION_PREVIEW_LEN].replace("\n", " ")
