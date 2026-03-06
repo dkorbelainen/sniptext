@@ -65,7 +65,7 @@ def main():
     parser.add_argument(
         "--list-models",
         action="store_true",
-        help="List available OCR models",
+        help="List available OCR backends",
     )
     parser.add_argument(
         "--print-config",
@@ -126,9 +126,14 @@ def main():
                 text = ocr_engine.recognize(image)
 
                 if text:
-                    clipboard_manager.copy(text)
-                    print(f"✓ Copied {len(text)} characters to clipboard:\n")
-                    print(text)
+                    copied = clipboard_manager.copy(text)
+                    if copied:
+                        print(f"✓ Copied {len(text)} characters to clipboard:\n")
+                        print(text)
+                    else:
+                        logger.error("Failed to copy text to clipboard")
+                        print(text)
+                        return 1
                 else:
                     print("✗ No text recognized in the selected area")
             else:
