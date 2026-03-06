@@ -95,12 +95,7 @@ def main():
         return 0
 
     if args.print_config:
-        render_config = getattr(config, "render_config", None)
-        if callable(render_config):
-            print(render_config(), end="")
-        else:
-            # Fallback for Config implementations that still use the private method.
-            print(config._render_config(), end="")
+        print(config._render_config(), end="")
         return 0
 
     if args.ocr_engine:

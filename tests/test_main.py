@@ -16,7 +16,7 @@ class TestSetupLogging:
     def test_verbose_level_is_debug(self):
         from loguru import logger
 
-        with patch.object(logger, "add") as mock_add:
+        with patch.object(logger, "remove"), patch.object(logger, "add") as mock_add:
             setup_logging(verbose=True)
             _, kwargs = mock_add.call_args
             assert kwargs["level"] == "DEBUG"
@@ -24,7 +24,7 @@ class TestSetupLogging:
     def test_default_level_is_info(self):
         from loguru import logger
 
-        with patch.object(logger, "add") as mock_add:
+        with patch.object(logger, "remove"), patch.object(logger, "add") as mock_add:
             setup_logging(verbose=False)
             _, kwargs = mock_add.call_args
             assert kwargs["level"] == "INFO"
@@ -123,7 +123,7 @@ class TestCaptureNow:
         out = capsys.readouterr().out
         assert "hello world" in out
 
-    def test_clipboard_failure_returns_nonzero(self, capsys):
+    def test_clipboard_failure_returns_nonzero(self):
         fake_image = MagicMock()
         with _run_main(["--capture-now"]) as (_, MockOCR, MockCapture, MockClipboard, _, __):
             MockCapture.return_value.capture_region.return_value = fake_image
