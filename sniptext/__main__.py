@@ -89,7 +89,22 @@ def main():
         return 0
 
     if args.print_config:
-        print(config._render_config(), end="")
+        # Prefer public config rendering methods, fall back to private helper for compatibility
+        render_fn = None
+        for attr_name in ("render_config", "to_commented_yaml"):
+            candidate = getattr(config, attr_name, None)
+            if callable(candidate):
+                render_fn = candidate
+                break
+        if render_fn is not None:
+            print(render_fn(), end="")
+        else:
+            # Backward-compatibility: use private helper if available, otherwise str(config)
+            private_render = getattr(config, "_render_config", None)
+            if callable(private_render):
+                print(private_render(), end="")
+            else:
+                print(str(config), end="")
         return 0
 
     if args.ocr_engine:
