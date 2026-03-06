@@ -30,6 +30,31 @@ def setup_logging(verbose: bool = False):
         )
 
 
+def _output_result(text: str, clipboard_manager, output_path: "Path | None") -> int:
+    """Print, copy, and optionally write OCR result. Returns exit code."""
+    if not text:
+        print("✗ No text recognized")
+        return 0
+
+    print(text)
+
+    copied = clipboard_manager.copy(text)
+    if copied:
+        print(f"\n✓ Copied {len(text)} characters to clipboard")
+    else:
+        logger.error("Failed to copy text to clipboard")
+
+    if output_path is not None:
+        try:
+            output_path.write_text(text, encoding="utf-8")
+            print(f"✓ Saved to {output_path}")
+        except OSError as e:
+            logger.error(f"Failed to write output file: {e}")
+            return 1
+
+    return 0 if copied else 1
+
+
 def main():
     """Main application entry point."""
     parser = argparse.ArgumentParser(description="SnipText - OCR Screen Capture Utility")
@@ -72,6 +97,18 @@ def main():
         action="store_true",
         help="Print current configuration and exit",
     )
+    parser.add_argument(
+        "--file",
+        type=Path,
+        metavar="IMAGE",
+        help="Run OCR on an image file instead of capturing the screen",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        metavar="FILE",
+        help="Write recognized text to FILE (in addition to clipboard)",
+    )
 
     args = parser.parse_args()
 
@@ -111,29 +148,30 @@ def main():
 
         logger.info("Components initialized successfully")
 
-        if args.capture_now:
+        if args.file:
+            logger.info(f"Loading image from {args.file}...")
+            from PIL import Image as _PIL_Image
+
+            pil_image = _PIL_Image.open(args.file)
+            import numpy as np
+
+            image = np.array(pil_image)
+        elif args.capture_now:
             logger.info("Capturing screen...")
             image = screen_capture.capture_region()
-
-            if image is not None:
-                logger.info("Running OCR...")
-                text = ocr_engine.recognize(image)
-
-                if text:
-                    copied = clipboard_manager.copy(text)
-                    if copied:
-                        print(f"✓ Copied {len(text)} characters to clipboard:\n")
-                        print(text)
-                    else:
-                        logger.error("Failed to copy text to clipboard")
-                        print(text)
-                        return 1
-                else:
-                    print("✗ No text recognized in the selected area")
-            else:
+            if image is None:
                 logger.error("Failed to capture screen")
                 return 1
         else:
+            image = None
+
+        if image is not None:
+            logger.info("Running OCR...")
+            text = ocr_engine.recognize(image)
+            rc = _output_result(text, clipboard_manager, args.output)
+            if rc != 0:
+                return rc
+        elif not args.file and not args.capture_now:
             logger.info("Starting hotkey daemon...")
             hotkey_manager = HotkeyManager(
                 config=config,
