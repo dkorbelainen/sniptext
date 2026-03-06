@@ -68,6 +68,9 @@ packages = ["sniptext"]
 [tool.setuptools.package-data]
 sniptext = ["py.typed"]
 
+[tool.setuptools.data-files]
+"share/man/man1" = ["man/sniptext.1"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py39"
