@@ -222,6 +222,8 @@ class HotkeyManager:
 
             if not text:
                 logger.warning("No text recognized")
+                if self.config.notification_enabled:
+                    self._show_notification("No text found in selected area")
                 return
 
             logger.info("Copying to clipboard...")
@@ -235,7 +237,9 @@ class HotkeyManager:
                 )
 
                 if self.config.notification_enabled:
-                    self._show_notification(f"Copied {len(text)} characters")
+                    preview = text[:50].replace("\n", " ")
+                    suffix = "…" if len(text) > 50 else ""
+                    self._show_notification(f"✓ {preview}{suffix}")
             else:
                 logger.error("Failed to copy to clipboard")
 
