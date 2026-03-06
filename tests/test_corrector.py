@@ -188,5 +188,54 @@ def test_spell_correct_uppercase_word_stays_uppercase():
     assert first_token.upper() == first_token
 
 
+class TestCharMatchesLang:
+    """Direct tests for _char_matches_lang to cover each script branch."""
+
+    def test_chinese_simplified_matches(self):
+        from sniptext.corrector import _char_matches_lang
+
+        assert _char_matches_lang(0x4E2D, "chi_sim")  # 中
+
+    def test_hebrew_matches(self):
+        from sniptext.corrector import _char_matches_lang
+
+        assert _char_matches_lang(0x05D0, "heb")  # א
+
+    def test_greek_matches(self):
+        from sniptext.corrector import _char_matches_lang
+
+        assert _char_matches_lang(0x03B1, "ell")  # α
+
+    def test_thai_matches(self):
+        from sniptext.corrector import _char_matches_lang
+
+        assert _char_matches_lang(0x0E01, "tha")  # ก
+
+    def test_no_script_match_returns_false(self):
+        from sniptext.corrector import _char_matches_lang
+
+        # Unknown lang code should never match
+        assert not _char_matches_lang(ord("A"), "xyz_unknown")
+
+    def test_detect_fallback_when_no_script_matches(self):
+        # Arabic text against Latin/Cyrillic candidates → all scores 0 → first candidate
+        result = detect_dominant_language("مرحبا", ["eng", "rus"])
+        assert result == "eng"
+
+
+class TestSpellCorrectEdgeCases:
+    def test_all_punctuation_word_unchanged(self):
+        corrector = OCRCorrector("eng")
+        # A "word" that is entirely punctuation strips to empty → kept as-is
+        result = corrector.correct("hello ... world")
+        assert "..." in result
+
+    def test_spell_correct_skips_when_no_spellchecker(self):
+        corrector = OCRCorrector("eng")
+        corrector._spellchecker = None
+        # _spell_correct should return text unchanged when no spellchecker
+        assert corrector._spell_correct("wrods") == "wrods"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

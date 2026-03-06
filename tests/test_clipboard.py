@@ -248,3 +248,52 @@ class TestWlCopyTerminateTimeout:
 
         assert result is True
         assert mgr._wl_process is new_proc
+
+
+class TestCopyGenericException:
+    def test_generic_exception_in_copy_returns_false(self):
+        mgr = _make_manager({"xclip": "/usr/bin/xclip"})
+        with patch("sniptext.clipboard.subprocess.Popen", side_effect=OSError("no xclip")):
+            assert mgr.copy("hello") is False
+
+
+class TestCleanupKillPath:
+    def test_cleanup_calls_kill_when_terminate_times_out(self):
+        """cleanup() must call kill() if terminate() leaves the process running."""
+        mgr = _make_manager({"wl-copy": "/usr/bin/wl-copy"})
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_proc.wait.side_effect = [
+            subprocess.TimeoutExpired("wl-copy", 1.0),
+            None,
+        ]
+        mgr._wl_process = mock_proc
+
+        mgr.cleanup()
+
+        mock_proc.kill.assert_called_once()
+        assert mgr._wl_process is None
+
+    def test_cleanup_kill_wait_timeout_does_not_raise(self):
+        """If the kill() wait also times out, cleanup() must still complete cleanly."""
+        mgr = _make_manager({"wl-copy": "/usr/bin/wl-copy"})
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_proc.wait.side_effect = subprocess.TimeoutExpired("wl-copy", 1.0)
+        mgr._wl_process = mock_proc
+
+        mgr.cleanup()  # must not raise
+
+        assert mgr._wl_process is None
+
+
+class TestPasteEdgeCases:
+    def test_unknown_tool_returns_none(self):
+        mgr = _make_manager({"xclip": "/usr/bin/xclip"})
+        mgr.tool = "unknown"
+        assert mgr.paste() is None
+
+    def test_exception_returns_none(self):
+        mgr = _make_manager({"xclip": "/usr/bin/xclip"})
+        with patch("sniptext.clipboard.subprocess.run", side_effect=OSError("oops")):
+            assert mgr.paste() is None

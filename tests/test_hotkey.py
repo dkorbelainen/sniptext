@@ -2,6 +2,8 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from sniptext.config import Config
 from sniptext.hotkey import HotkeyManager
 
@@ -285,3 +287,12 @@ class TestWaylandDetection:
                         pass
         mock_listener.assert_called()
         mock_warning.assert_not_called()
+
+
+class TestStartFailure:
+    def test_start_reraises_when_listener_fails(self):
+        """start() must re-raise if pynput keyboard.Listener raises."""
+        mgr = _make_manager()
+        with patch("pynput.keyboard.Listener", side_effect=RuntimeError("no permissions")):
+            with pytest.raises(RuntimeError, match="no permissions"):
+                mgr.start()
