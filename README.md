@@ -30,6 +30,8 @@ yay -S sniptext
 
 **Test:** `sniptext --capture-now`
 
+Run `sniptext --help` for all flags. Use `sniptext --print-config` to view current settings with descriptions.
+
 ## Language Support
 
 Install additional language packs:
@@ -50,8 +52,14 @@ ocr_language: eng+rus+equ  # English + Russian + Math
 
 ## Configuration
 
-Config: `~/.config/sniptext/config.yaml` (auto-created on first run)
+Config: `~/.config/sniptext/config.yaml` (auto-created on first run with inline comments)
 
+View all options with descriptions:
+```bash
+sniptext --print-config
+```
+
+Key settings:
 ```yaml
 ocr_engine: ensemble        # ensemble, tesseract, or easyocr
 ocr_language: eng           # See LANGUAGES.md for codes
