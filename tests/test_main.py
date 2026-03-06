@@ -198,3 +198,90 @@ class TestInitLazyImports:
 
         with pytest.raises(AttributeError, match="has no attribute"):
             _ = sniptext.NonExistentThing
+
+
+# ---------------------------------------------------------------------------
+# --file IMAGE
+# ---------------------------------------------------------------------------
+
+
+class TestFileInput:
+    def test_file_runs_ocr_and_copies(self, tmp_path, capsys):
+        img_path = tmp_path / "test.png"
+        fake_array = MagicMock()
+
+        with (
+            _run_main(["--file", str(img_path)]) as (_, MockOCR, ___, MockClipboard, __, ____),
+            patch("PIL.Image.open") as MockOpen,
+            patch("numpy.array", return_value=fake_array),
+        ):
+            MockOpen.return_value = MagicMock()
+            MockOCR.return_value.recognize.return_value = "hello from file"
+            MockClipboard.return_value.copy.return_value = True
+
+            result = main()
+
+        assert result == 0
+        assert "hello from file" in capsys.readouterr().out
+
+    def test_file_no_text_recognized(self, tmp_path, capsys):
+        img_path = tmp_path / "blank.png"
+        with (
+            _run_main(["--file", str(img_path)]) as (_, MockOCR, ___, MockClipboard, __, ____),
+            patch("PIL.Image.open") as MockOpen,
+            patch("numpy.array", return_value=MagicMock()),
+        ):
+            MockOpen.return_value = MagicMock()
+            MockOCR.return_value.recognize.return_value = ""
+            MockClipboard.return_value.copy.return_value = True
+
+            result = main()
+
+        assert result == 0
+        assert "No text" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# --output FILE
+# ---------------------------------------------------------------------------
+
+
+class TestOutputFile:
+    def test_output_writes_text_to_file(self, tmp_path, capsys):
+        out_path = tmp_path / "result.txt"
+        fake_image = MagicMock()
+        with _run_main(["--capture-now", "--output", str(out_path)]) as (
+            _,
+            MockOCR,
+            MockCapture,
+            MockClipboard,
+            __,
+            ___,
+        ):
+            MockCapture.return_value.capture_region.return_value = fake_image
+            MockOCR.return_value.recognize.return_value = "written text"
+            MockClipboard.return_value.copy.return_value = True
+
+            result = main()
+
+        assert result == 0
+        assert out_path.read_text() == "written text"
+
+    def test_output_write_error_returns_one(self, tmp_path, capsys):
+        fake_image = MagicMock()
+        out_path = tmp_path / "missing" / "out.txt"  # parent dir not created
+        with _run_main(["--capture-now", "--output", str(out_path)]) as (
+            _,
+            MockOCR,
+            MockCapture,
+            MockClipboard,
+            __,
+            ___,
+        ):
+            MockCapture.return_value.capture_region.return_value = fake_image
+            MockOCR.return_value.recognize.return_value = "some text"
+            MockClipboard.return_value.copy.return_value = True
+
+            result = main()
+
+        assert result == 1
