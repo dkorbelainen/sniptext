@@ -267,9 +267,10 @@ class TestOutputFile:
         assert result == 0
         assert out_path.read_text() == "written text"
 
-    def test_output_write_error_returns_one(self, capsys):
+    def test_output_write_error_returns_one(self, tmp_path, capsys):
         fake_image = MagicMock()
-        with _run_main(["--capture-now", "--output", "/no/such/dir/out.txt"]) as (
+        out_path = tmp_path / "missing" / "out.txt"  # parent dir not created
+        with _run_main(["--capture-now", "--output", str(out_path)]) as (
             _,
             MockOCR,
             MockCapture,

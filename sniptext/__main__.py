@@ -7,6 +7,7 @@ import argparse
 import sys
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
+from typing import Optional
 
 from loguru import logger
 
@@ -30,7 +31,7 @@ def setup_logging(verbose: bool = False):
         )
 
 
-def _output_result(text: str, clipboard_manager, output_path: "Path | None") -> int:
+def _output_result(text: str, clipboard_manager, output_path: Optional[Path]) -> int:
     """Print, copy, and optionally write OCR result. Returns exit code."""
     if not text:
         print("✗ No text recognized")
@@ -76,10 +77,17 @@ def main():
         action="store_true",
         help="Enable verbose logging",
     )
-    parser.add_argument(
+    capture_group = parser.add_mutually_exclusive_group()
+    capture_group.add_argument(
         "--capture-now",
         action="store_true",
         help="Capture screen immediately without hotkey",
+    )
+    capture_group.add_argument(
+        "--file",
+        type=Path,
+        metavar="IMAGE",
+        help="Run OCR on an image file instead of capturing the screen",
     )
     parser.add_argument(
         "--ocr-engine",
@@ -96,12 +104,6 @@ def main():
         "--print-config",
         action="store_true",
         help="Print current configuration and exit",
-    )
-    parser.add_argument(
-        "--file",
-        type=Path,
-        metavar="IMAGE",
-        help="Run OCR on an image file instead of capturing the screen",
     )
     parser.add_argument(
         "--output",
@@ -146,7 +148,6 @@ def main():
     hotkey_manager = None
     clipboard_manager = None
     try:
-        screen_capture = ScreenCapture(config)
         ocr_engine = OCREngine(config)
         clipboard_manager = ClipboardManager()
 
@@ -154,8 +155,9 @@ def main():
 
         if args.file:
             logger.info(f"Loading image from {args.file}...")
-            from PIL import Image as _PIL_Image, UnidentifiedImageError as _PIL_UnidentifiedImageError
             import numpy as np
+            from PIL import Image as _PIL_Image
+            from PIL import UnidentifiedImageError as _PIL_UnidentifiedImageError
 
             try:
                 with _PIL_Image.open(args.file) as pil_image:
@@ -164,6 +166,7 @@ def main():
                 logger.error(f"Failed to open image file '{args.file}': {e}")
                 return 2
         elif args.capture_now:
+            screen_capture = ScreenCapture(config)
             logger.info("Capturing screen...")
             image = screen_capture.capture_region()
             if image is None:
@@ -178,7 +181,8 @@ def main():
             rc = _output_result(text, clipboard_manager, args.output)
             if rc != 0:
                 return rc
-        elif not args.file and not args.capture_now:
+        else:
+            screen_capture = ScreenCapture(config)
             logger.info("Starting hotkey daemon...")
             hotkey_manager = HotkeyManager(
                 config=config,
