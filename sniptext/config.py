@@ -16,6 +16,7 @@ CONFIG_FIELD_COMMENTS: dict[str, str] = {
     "ocr_language": "Tesseract language code(s), e.g. eng, rus, eng+rus",
     "ocr_confidence_threshold": "Minimum OCR confidence to accept a result (0.0–1.0)",
     "adaptive_ensemble": "Auto-select fast/ensemble mode based on image quality",
+    "ab_test_probability": "Probability (0.0–1.0) to run both strategies for model training",
     "max_image_size": "Resize images larger than this (pixels) before OCR",
     "use_gpu": "Use GPU acceleration for EasyOCR when available (requires CUDA)",
     "notification_enabled": "Show desktop notification after each capture",
@@ -42,6 +43,7 @@ class Config:
     ocr_language: str = "eng"  # Language code (eng, rus, eng+rus, etc.)
     ocr_confidence_threshold: float = 0.6
     adaptive_ensemble: bool = True  # Automatically choose fast/ensemble mode based on image quality
+    ab_test_probability: float = 0.15  # Run both strategies to collect training data
 
     # Performance
     max_image_size: int = 4096
@@ -115,6 +117,17 @@ class Config:
                 "must be a positive integer. Resetting to 50."
             )
             self.history_size = 50
+
+        try:
+            ab_ok = 0.0 <= float(self.ab_test_probability) <= 1.0
+        except (TypeError, ValueError):
+            ab_ok = False
+        if not ab_ok:
+            logger.warning(
+                f"Invalid ab_test_probability={self.ab_test_probability!r}; "
+                "must be a number in [0, 1]. Resetting to 0.15."
+            )
+            self.ab_test_probability = 0.15
 
     @classmethod
     def _profiles_dir(cls, config_path: Path) -> Path:
