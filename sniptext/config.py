@@ -128,6 +128,8 @@ class Config:
                 "must be a number in [0, 1]. Resetting to 0.15."
             )
             self.ab_test_probability = 0.15
+        else:
+            self.ab_test_probability = float(self.ab_test_probability)
 
     @classmethod
     def _profiles_dir(cls, config_path: Path) -> Path:

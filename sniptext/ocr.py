@@ -1,7 +1,7 @@
 """OCR engine for SnipText with multiple backends."""
 
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import List
 
 import numpy as np
 from loguru import logger
@@ -375,17 +375,49 @@ class OCREngine:
         Returns:
             Text from the better strategy
         """
-        from .metrics import OCRQualityMetrics
+        from .metrics import OCRQualityMetrics, extract_confidence_scores
 
         metrics = OCRQualityMetrics()
+
+        # Resolve the fast strategy backend (tesseract only).
+        fast_backend = (
+            self.backend
+            if isinstance(self.backend, TesseractBackend)
+            else self.backends.get("tesseract")
+        )
+        if not fast_backend or not fast_backend.is_available():
+            logger.info(
+                "A/B: Skipping test because Tesseract is not available; "
+                "using ensemble strategy only"
+            )
+            try:
+                return self._recognize_ensemble(image)
+            except Exception as e:
+                logger.warning(
+                    f"A/B: Ensemble strategy failed while Tesseract was unavailable: {e}"
+                )
+                return ""
 
         # Run fast strategy (tesseract only)
         fast_text = ""
         fast_confidences = None
         try:
             logger.debug("A/B: Running fast strategy")
-            fast_text = self.backend.recognize(image)
-            fast_confidences = self._get_confidence_scores(image)
+            enhanced_image = fast_backend._analyzer.enhance_for_ocr(image)
+            fast_text = fast_backend.recognize(enhanced_image)
+            # Extract confidence scores
+            try:
+                import pytesseract
+                from pytesseract import Output
+
+                lang_code = self.config.ocr_language
+                data = pytesseract.image_to_data(
+                    enhanced_image, lang=lang_code, output_type=Output.DICT
+                )
+                if data:
+                    fast_confidences = extract_confidence_scores(data)
+            except Exception as e:
+                logger.debug(f"Could not extract confidence scores: {e}")
         except Exception as e:
             logger.warning(f"A/B: Fast strategy failed: {e}")
 
@@ -428,36 +460,10 @@ class OCREngine:
             return fast_text
         else:
             logger.info(
-                f"A/B: Using ensemble result (quality: {ensemble_quality:.2f} vs {fast_quality:.2f})"
+                f"A/B: Using ensemble result (quality: {ensemble_quality:.2f} vs "
+                f"{fast_quality:.2f})"
             )
             return ensemble_text
-
-    def _get_confidence_scores(self, image: Image.Image) -> Optional[List[float]]:
-        """
-        Extract confidence scores from Tesseract for quality metrics.
-
-        Args:
-            image: PIL Image
-
-        Returns:
-            List of confidence scores or None
-        """
-        try:
-            import pytesseract
-            from pytesseract import Output
-
-            from .metrics import extract_confidence_scores
-
-            # Re-run tesseract to get detailed data
-            lang_code = self.config.ocr_language
-            data = pytesseract.image_to_data(image, lang=lang_code, output_type=Output.DICT)
-
-            if data:
-                return extract_confidence_scores(data)
-        except Exception as e:
-            logger.debug(f"Could not extract confidence scores: {e}")
-
-        return None
 
     def _prepare_image(self, image: "np.ndarray | Image.Image") -> Image.Image:
         """

@@ -17,11 +17,25 @@ class OCRQualityMetrics:
     def _try_init_spell_checker(self):
         """Try to initialize spell checker if available."""
         try:
+            from importlib import resources
+
             from symspellpy import SymSpell
 
-            self.spell_checker = SymSpell(max_dictionary_edit_distance=2)
-        except ImportError:
-            pass
+            spell_checker = SymSpell(max_dictionary_edit_distance=2)
+            dictionary_resource = resources.files("symspellpy").joinpath(
+                "frequency_dictionary_en_82_765.txt"
+            )
+
+            with resources.as_file(dictionary_resource) as dictionary_path:
+                loaded = spell_checker.load_dictionary(
+                    str(dictionary_path),
+                    term_index=0,
+                    count_index=1,
+                )
+
+            self.spell_checker = spell_checker if loaded else None
+        except (ImportError, FileNotFoundError, OSError):
+            self.spell_checker = None
 
     def calculate_quality_score(
         self,
