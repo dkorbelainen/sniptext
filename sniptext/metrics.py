@@ -93,9 +93,7 @@ class OCRQualityMetrics:
 
         # Count valid chars: letters, digits, common punctuation, whitespace
         valid_chars = sum(
-            1
-            for c in text
-            if c.isalnum() or c in " .,!?;:'\"-()[]{}@#$%&*+=/<>\\|`~\n\t"
+            1 for c in text if c.isalnum() or c in " .,!?;:'\"-()[]{}@#$%&*+=/<>\\|`~\n\t"
         )
         return valid_chars / len(text)
 
@@ -127,9 +125,7 @@ class OCRQualityMetrics:
                 issues += 2
 
         # Check for excessive special characters overall
-        special_ratio = sum(1 for c in text if not c.isalnum() and not c.isspace()) / len(
-            text
-        )
+        special_ratio = sum(1 for c in text if not c.isalnum() and not c.isspace()) / len(text)
         if special_ratio > 0.4:
             issues += 1
 
@@ -148,9 +144,7 @@ class OCRQualityMetrics:
         valid_words = 0
         for word in words:
             # Check if word is in dictionary (allowing small edit distance)
-            suggestions = self.spell_checker.lookup(
-                word.lower(), verbosity=0, max_edit_distance=1
-            )
+            suggestions = self.spell_checker.lookup(word.lower(), verbosity=0, max_edit_distance=1)
             if suggestions:
                 valid_words += 1
 

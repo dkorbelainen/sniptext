@@ -290,7 +290,9 @@ class OCREngine:
                         text = self._recognize_ensemble(pil_image)
 
                     if text:
-                        logger.info(f"Recognized text: {len(text)} characters (strategy: {strategy})")
+                        logger.info(
+                            f"Recognized text: {len(text)} characters (strategy: {strategy})"
+                        )
             elif self.config.ocr_engine == "ensemble":
                 # Always use ensemble without adaptive selection
                 text = self._recognize_ensemble(pil_image)
@@ -361,9 +363,7 @@ class OCREngine:
 
         return combined
 
-    def _run_ab_test(
-        self, image: Image.Image, features: np.ndarray, confidence_model
-    ) -> str:
+    def _run_ab_test(self, image: Image.Image, features: np.ndarray, confidence_model) -> str:
         """
         Run A/B test: execute both fast and ensemble strategies, compare results.
 

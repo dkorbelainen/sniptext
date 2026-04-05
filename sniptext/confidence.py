@@ -263,7 +263,11 @@ class ConfidenceModel:
             if strategy == "fast":
                 fast_result = {"text": "", "quality_score": 0.5 if success else 0.0, "length": 0}
             else:
-                ensemble_result = {"text": "", "quality_score": 0.5 if success else 0.0, "length": 0}
+                ensemble_result = {
+                    "text": "",
+                    "quality_score": 0.5 if success else 0.0,
+                    "length": 0,
+                }
 
         if len(features) != _FEATURE_COUNT:
             logger.warning(
@@ -382,7 +386,11 @@ class ConfidenceModel:
             # Split data for validation (80/20)
             test_size = max(0.2, min(10, len(samples) * 0.2) / len(samples))
             X_train, X_val, y_train, y_val = train_test_split(
-                X, y, test_size=test_size, random_state=42, stratify=y if len(np.unique(y)) > 1 else None
+                X,
+                y,
+                test_size=test_size,
+                random_state=42,
+                stratify=y if len(np.unique(y)) > 1 else None,
             )
 
             new_model = GradientBoostingClassifier(
@@ -401,7 +409,11 @@ class ConfidenceModel:
 
                 # Calculate per-class metrics
                 class_report = classification_report(
-                    y_val, y_pred, target_names=["fast", "ensemble"], output_dict=True, zero_division=0
+                    y_val,
+                    y_pred,
+                    target_names=["fast", "ensemble"],
+                    output_dict=True,
+                    zero_division=0,
                 )
             else:
                 conf_matrix = None
@@ -471,6 +483,7 @@ class ConfidenceModel:
         except Exception as e:
             logger.warning(f"Retrain failed: {e}")
             import traceback
+
             logger.debug(traceback.format_exc())
             return
 
