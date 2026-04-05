@@ -29,7 +29,7 @@ class TestRecordResult:
         assert len(lines) == 1
         sample = json.loads(lines[0])
         assert sample["label"] == 1  # ensemble -> 1
-        assert sample["success"] is False
+        assert sample["winner"] == "ensemble"
         assert len(sample["features"]) == 7
 
     def test_fast_strategy_label_zero(self, model_in_tmp):

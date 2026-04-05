@@ -3,7 +3,7 @@
 import json
 import pickle
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 import numpy as np
 from loguru import logger
@@ -35,6 +35,7 @@ class ConfidenceModel:
 
         self.model_path = Path(model_path)
         self.feedback_path = self.model_path.with_name("ocr_feedback.jsonl")
+        self.metrics_history_path = self.model_path.with_name("metrics_history.jsonl")
 
     def _ensure_initialized(self):
         """Ensure model is loaded/trained (called on first use)."""
@@ -228,21 +229,45 @@ class ConfidenceModel:
         else:
             return "ensemble", min(1.0 - quality_score, 0.95)
 
-    def record_result(self, features: np.ndarray, strategy: str, success: bool):
+    def record_result(
+        self,
+        features: np.ndarray,
+        strategy: Optional[str] = None,
+        success: Optional[bool] = None,
+        fast_result: Optional[Dict] = None,
+        ensemble_result: Optional[Dict] = None,
+    ):
         """
-        Record an OCR result for future model improvement.
+        Record OCR result(s) for model training.
+
+        For A/B testing: provide both fast_result and ensemble_result as dicts.
+        The better one (by quality_score) becomes the training label.
+
+        For regular use: provide only the result that was actually used as dict,
+        or use legacy parameters (strategy, success) for backward compatibility.
 
         Samples are appended to ``ocr_feedback.jsonl`` (one JSON line each).
         Every :data:`_RETRAIN_EVERY` new samples the model is retrained on
-        the accumulated feedback and saved to disk so subsequent sessions
-        benefit from the learning immediately.
+        the accumulated feedback and saved to disk.
 
         Args:
             features: Image feature vector (from ImageAnalyzer.extract_features).
-            strategy: Strategy that was used — ``'fast'`` or ``'ensemble'``.
-            success: ``True`` if OCR produced a non-empty result.
+            strategy: (Legacy) Strategy name - 'fast' or 'ensemble'
+            success: (Legacy) Whether OCR produced non-empty result
+            fast_result: Dict with keys 'text', 'quality_score', optional 'confidence'
+            ensemble_result: Dict with keys 'text', 'quality_score', optional 'confidence'
         """
-        label = 0 if strategy == "fast" else 1
+        # Handle legacy API
+        if strategy is not None and success is not None:
+            # Convert legacy call to new format
+            if strategy == "fast":
+                fast_result = {"text": "", "quality_score": 0.5 if success else 0.0, "length": 0}
+            else:
+                ensemble_result = {
+                    "text": "",
+                    "quality_score": 0.5 if success else 0.0,
+                    "length": 0,
+                }
 
         if len(features) != _FEATURE_COUNT:
             logger.warning(
@@ -250,10 +275,52 @@ class ConfidenceModel:
             )
             return
 
+        # Determine label based on which strategy was better
+        winner = None
+        label = None
+
+        if fast_result is not None and ensemble_result is not None:
+            # A/B test: compare both results
+            fast_quality = fast_result.get("quality_score", 0.0)
+            ensemble_quality = ensemble_result.get("quality_score", 0.0)
+
+            # Only record if there's a clear winner (>5% difference)
+            if abs(fast_quality - ensemble_quality) >= 0.05:
+                if fast_quality > ensemble_quality:
+                    winner = "fast"
+                    label = 0
+                else:
+                    winner = "ensemble"
+                    label = 1
+
+                logger.debug(
+                    f"A/B test: {winner} won (fast={fast_quality:.2f}, "
+                    f"ensemble={ensemble_quality:.2f})"
+                )
+            else:
+                logger.debug(
+                    f"A/B test: tie (fast={fast_quality:.2f}, "
+                    f"ensemble={ensemble_quality:.2f}), not recording"
+                )
+                return
+        elif fast_result is not None:
+            # Only fast was used
+            winner = "fast"
+            label = 0
+        elif ensemble_result is not None:
+            # Only ensemble was used
+            winner = "ensemble"
+            label = 1
+        else:
+            logger.warning("No results provided to record_result")
+            return
+
         sample = {
             "features": features.tolist(),
             "label": label,
-            "success": success,
+            "winner": winner,
+            "fast_result": fast_result,
+            "ensemble_result": ensemble_result,
         }
 
         try:
@@ -264,7 +331,7 @@ class ConfidenceModel:
             logger.warning(f"Could not write feedback sample: {e}")
             return
 
-        logger.debug(f"Recorded feedback: strategy={strategy}, success={success}")
+        logger.debug(f"Recorded feedback: winner={winner}")
 
         # Count lines to decide if retraining is due
         try:
@@ -279,7 +346,7 @@ class ConfidenceModel:
             self._retrain_from_feedback()
 
     def _retrain_from_feedback(self):
-        """Retrain the confidence model using accumulated feedback data."""
+        """Retrain the confidence model using accumulated feedback data with metrics tracking."""
         try:
             samples = []
             with open(self.feedback_path, "r", encoding="utf-8") as f:
@@ -313,23 +380,114 @@ class ConfidenceModel:
 
         try:
             from sklearn.ensemble import GradientBoostingClassifier
+            from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+            from sklearn.model_selection import cross_val_score, train_test_split
+
+            # Split data for validation (80/20)
+            test_size = max(0.2, min(10, len(samples) * 0.2) / len(samples))
+            X_train, X_val, y_train, y_val = train_test_split(
+                X,
+                y,
+                test_size=test_size,
+                random_state=42,
+                stratify=y if len(np.unique(y)) > 1 else None,
+            )
 
             new_model = GradientBoostingClassifier(
                 n_estimators=50, max_depth=3, learning_rate=0.1, random_state=42
             )
-            new_model.fit(X, y)
+            new_model.fit(X_train, y_train)
 
+            # Calculate metrics
+            train_acc = accuracy_score(y_train, new_model.predict(X_train))
+            val_acc = accuracy_score(y_val, new_model.predict(X_val)) if len(X_val) > 0 else 0.0
+
+            # Get predictions for validation set
+            if len(X_val) > 0:
+                y_pred = new_model.predict(X_val)
+                conf_matrix = confusion_matrix(y_val, y_pred)
+
+                # Calculate per-class metrics
+                class_report = classification_report(
+                    y_val,
+                    y_pred,
+                    target_names=["fast", "ensemble"],
+                    output_dict=True,
+                    zero_division=0,
+                )
+            else:
+                conf_matrix = None
+                class_report = None
+
+            # Save model
             self.model = new_model
             self.trained = True
             self.save_model()
-            logger.info(f"Confidence model retrained on {len(samples)} samples and saved")
+
+            logger.info(
+                f"Model retrained on {len(samples)} samples | "
+                f"Train acc: {train_acc:.1%} | Val acc: {val_acc:.1%}"
+            )
+
+            # Log detailed metrics
+            if class_report:
+                fast_metrics = class_report.get("fast", {})
+                ensemble_metrics = class_report.get("ensemble", {})
+                logger.info(
+                    f"Fast strategy - Precision: {fast_metrics.get('precision', 0):.2f}, "
+                    f"Recall: {fast_metrics.get('recall', 0):.2f}, "
+                    f"F1: {fast_metrics.get('f1-score', 0):.2f}"
+                )
+                logger.info(
+                    f"Ensemble strategy - Precision: {ensemble_metrics.get('precision', 0):.2f}, "
+                    f"Recall: {ensemble_metrics.get('recall', 0):.2f}, "
+                    f"F1: {ensemble_metrics.get('f1-score', 0):.2f}"
+                )
+
+            # Feature importance
+            feature_names = [
+                "brightness",
+                "contrast",
+                "sharpness",
+                "has_color",
+                "size_ratio",
+                "text_density",
+                "noise_level",
+            ]
+            importances = new_model.feature_importances_
+            top_features = sorted(
+                zip(feature_names, importances), key=lambda x: x[1], reverse=True
+            )[:3]
+            logger.info(
+                f"Top features: {', '.join(f'{name}={imp:.2f}' for name, imp in top_features)}"
+            )
+
+            # Save metrics to history file
+            self._save_metrics_history(
+                {
+                    "n_samples": len(samples),
+                    "train_accuracy": float(train_acc),
+                    "val_accuracy": float(val_acc),
+                    "confusion_matrix": conf_matrix.tolist() if conf_matrix is not None else None,
+                    "class_report": class_report,
+                    "feature_importance": dict(zip(feature_names, importances.tolist())),
+                    "label_distribution": {
+                        "fast": int(np.sum(y == 0)),
+                        "ensemble": int(np.sum(y == 1)),
+                    },
+                }
+            )
+
         except ImportError:
             logger.debug("sklearn not available — skipping retrain")
         except Exception as e:
             logger.warning(f"Retrain failed: {e}")
+            import traceback
+
+            logger.debug(traceback.format_exc())
             return
 
-        # CV runs after the model is safely stored; failures only affect logging.
+        # Cross-validation for additional validation
         try:
             from sklearn.model_selection import cross_val_score
 
@@ -345,7 +503,7 @@ class ConfidenceModel:
                         "model may not generalise well — collect more feedback"
                     )
                 else:
-                    logger.info(f"CV accuracy after retrain: {cv_mean:.1%} ±{cv_std:.1%}")
+                    logger.info(f"CV accuracy: {cv_mean:.1%} ±{cv_std:.1%}")
             else:
                 logger.debug("Skipping CV: need at least 2 samples per class")
         except Exception as e:
@@ -387,3 +545,25 @@ class ConfidenceModel:
             logger.info(f"Saved confidence model to {self.model_path}")
         except Exception as e:
             logger.error(f"Failed to save model: {e}")
+
+    def _save_metrics_history(self, metrics: Dict):
+        """
+        Save training metrics to history file for tracking model improvement.
+
+        Args:
+            metrics: Dictionary containing training metrics
+        """
+        from datetime import datetime, timezone
+
+        record = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            **metrics,
+        }
+
+        try:
+            self.metrics_history_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.metrics_history_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record) + "\n")
+            logger.debug(f"Saved metrics to {self.metrics_history_path}")
+        except Exception as e:
+            logger.warning(f"Could not save metrics history: {e}")

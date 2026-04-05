@@ -1,6 +1,7 @@
 """OCR engine for SnipText with multiple backends."""
 
 from abc import ABC, abstractmethod
+from typing import List
 
 import numpy as np
 from loguru import logger
@@ -154,7 +155,7 @@ class EasyOCRBackend(OCRBackend):
 
         return "\n".join(lines)
 
-    def _get_lang_codes(self) -> list[str]:
+    def _get_lang_codes(self) -> List[str]:
         """Get EasyOCR language codes."""
         # Convert Tesseract codes to EasyOCR codes
         lang_map = {
@@ -237,7 +238,7 @@ class OCREngine:
 
         return backend
 
-    def get_available_backends(self) -> list[str]:
+    def get_available_backends(self) -> List[str]:
         """Get list of available backend names."""
         return [name for name, backend in self.backends.items() if backend.is_available()]
 
@@ -269,22 +270,29 @@ class OCREngine:
 
             text = ""
             if confidence_model and self.config.ocr_engine == "ensemble":
-                strategy, confidence = confidence_model.predict_strategy(pil_image)
+                # Check if we should run A/B test
+                import random
 
-                if strategy == "fast":
-                    logger.debug(f"Using fast mode (confidence: {confidence:.2f})")
-                    text = self.backend.recognize(pil_image)
+                should_ab_test = random.random() < self.config.ab_test_probability
+
+                if should_ab_test:
+                    logger.debug("Running A/B test (both strategies)")
+                    text = self._run_ab_test(pil_image, features, confidence_model)
                 else:
-                    # Use ensemble for difficult images
-                    logger.debug(f"Using ensemble mode (confidence: {confidence:.2f})")
-                    text = self._recognize_ensemble(pil_image)
+                    # Normal adaptive mode
+                    strategy, confidence = confidence_model.predict_strategy(pil_image)
 
-                if text:
-                    logger.info(f"Recognized text: {len(text)} characters (strategy: {strategy})")
+                    if strategy == "fast":
+                        logger.debug(f"Using fast mode (confidence: {confidence:.2f})")
+                        text = self.backend.recognize(pil_image)
+                    else:
+                        logger.debug(f"Using ensemble mode (confidence: {confidence:.2f})")
+                        text = self._recognize_ensemble(pil_image)
 
-                # Feed result back so the model learns over time
-                if features is not None:
-                    confidence_model.record_result(features, strategy, success=bool(text))
+                    if text:
+                        logger.info(
+                            f"Recognized text: {len(text)} characters (strategy: {strategy})"
+                        )
             elif self.config.ocr_engine == "ensemble":
                 # Always use ensemble without adaptive selection
                 text = self._recognize_ensemble(pil_image)
@@ -354,6 +362,108 @@ class OCREngine:
         logger.info(f"Ensemble combined {len(results)} results")
 
         return combined
+
+    def _run_ab_test(self, image: Image.Image, features: np.ndarray, confidence_model) -> str:
+        """
+        Run A/B test: execute both fast and ensemble strategies, compare results.
+
+        Args:
+            image: PIL Image to process
+            features: Extracted features for the image
+            confidence_model: ConfidenceModel instance
+
+        Returns:
+            Text from the better strategy
+        """
+        from .metrics import OCRQualityMetrics, extract_confidence_scores
+
+        metrics = OCRQualityMetrics()
+
+        # Resolve the fast strategy backend (tesseract only).
+        fast_backend = (
+            self.backend
+            if isinstance(self.backend, TesseractBackend)
+            else self.backends.get("tesseract")
+        )
+        if not fast_backend or not fast_backend.is_available():
+            logger.info(
+                "A/B: Skipping test because Tesseract is not available; "
+                "using ensemble strategy only"
+            )
+            try:
+                return self._recognize_ensemble(image)
+            except Exception as e:
+                logger.warning(
+                    f"A/B: Ensemble strategy failed while Tesseract was unavailable: {e}"
+                )
+                return ""
+
+        # Run fast strategy (tesseract only)
+        fast_text = ""
+        fast_confidences = None
+        try:
+            logger.debug("A/B: Running fast strategy")
+            enhanced_image = fast_backend._analyzer.enhance_for_ocr(image)
+            fast_text = fast_backend.recognize(enhanced_image)
+            # Extract confidence scores
+            try:
+                import pytesseract
+                from pytesseract import Output
+
+                lang_code = self.config.ocr_language
+                data = pytesseract.image_to_data(
+                    enhanced_image, lang=lang_code, output_type=Output.DICT
+                )
+                if data:
+                    fast_confidences = extract_confidence_scores(data)
+            except Exception as e:
+                logger.debug(f"Could not extract confidence scores: {e}")
+        except Exception as e:
+            logger.warning(f"A/B: Fast strategy failed: {e}")
+
+        # Run ensemble strategy
+        ensemble_text = ""
+        try:
+            logger.debug("A/B: Running ensemble strategy")
+            ensemble_text = self._recognize_ensemble(image)
+        except Exception as e:
+            logger.warning(f"A/B: Ensemble strategy failed: {e}")
+
+        # Calculate quality scores
+        fast_quality = metrics.calculate_quality_score(fast_text, fast_confidences)
+        ensemble_quality = metrics.calculate_quality_score(ensemble_text, None)
+
+        fast_result = {
+            "text": fast_text,
+            "quality_score": fast_quality,
+            "length": len(fast_text),
+        }
+
+        ensemble_result = {
+            "text": ensemble_text,
+            "quality_score": ensemble_quality,
+            "length": len(ensemble_text),
+        }
+
+        # Record results for training
+        confidence_model.record_result(
+            features,
+            fast_result=fast_result,
+            ensemble_result=ensemble_result,
+        )
+
+        # Return the better result
+        if fast_quality >= ensemble_quality:
+            logger.info(
+                f"A/B: Using fast result (quality: {fast_quality:.2f} vs {ensemble_quality:.2f})"
+            )
+            return fast_text
+        else:
+            logger.info(
+                f"A/B: Using ensemble result (quality: {ensemble_quality:.2f} vs "
+                f"{fast_quality:.2f})"
+            )
+            return ensemble_text
 
     def _prepare_image(self, image: "np.ndarray | Image.Image") -> Image.Image:
         """
