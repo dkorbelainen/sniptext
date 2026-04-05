@@ -1,6 +1,7 @@
 """OCR engine for SnipText with multiple backends."""
 
 from abc import ABC, abstractmethod
+from typing import List, Optional
 
 import numpy as np
 from loguru import logger
@@ -154,7 +155,7 @@ class EasyOCRBackend(OCRBackend):
 
         return "\n".join(lines)
 
-    def _get_lang_codes(self) -> list[str]:
+    def _get_lang_codes(self) -> List[str]:
         """Get EasyOCR language codes."""
         # Convert Tesseract codes to EasyOCR codes
         lang_map = {
@@ -237,7 +238,7 @@ class OCREngine:
 
         return backend
 
-    def get_available_backends(self) -> list[str]:
+    def get_available_backends(self) -> List[str]:
         """Get list of available backend names."""
         return [name for name, backend in self.backends.items() if backend.is_available()]
 
@@ -431,7 +432,7 @@ class OCREngine:
             )
             return ensemble_text
 
-    def _get_confidence_scores(self, image: Image.Image) -> list[float] | None:
+    def _get_confidence_scores(self, image: Image.Image) -> Optional[List[float]]:
         """
         Extract confidence scores from Tesseract for quality metrics.
 

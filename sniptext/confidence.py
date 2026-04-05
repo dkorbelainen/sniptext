@@ -3,7 +3,7 @@
 import json
 import pickle
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 import numpy as np
 from loguru import logger
@@ -234,8 +234,8 @@ class ConfidenceModel:
         features: np.ndarray,
         strategy: Optional[str] = None,
         success: Optional[bool] = None,
-        fast_result: Optional[dict] = None,
-        ensemble_result: Optional[dict] = None,
+        fast_result: Optional[Dict] = None,
+        ensemble_result: Optional[Dict] = None,
     ):
         """
         Record OCR result(s) for model training.
@@ -398,7 +398,7 @@ class ConfidenceModel:
             if len(X_val) > 0:
                 y_pred = new_model.predict(X_val)
                 conf_matrix = confusion_matrix(y_val, y_pred)
-                
+
                 # Calculate per-class metrics
                 class_report = classification_report(
                     y_val, y_pred, target_names=["fast", "ensemble"], output_dict=True, zero_division=0
@@ -411,7 +411,7 @@ class ConfidenceModel:
             self.model = new_model
             self.trained = True
             self.save_model()
-            
+
             logger.info(
                 f"Model retrained on {len(samples)} samples | "
                 f"Train acc: {train_acc:.1%} | Val acc: {val_acc:.1%}"
@@ -533,7 +533,7 @@ class ConfidenceModel:
         except Exception as e:
             logger.error(f"Failed to save model: {e}")
 
-    def _save_metrics_history(self, metrics: dict):
+    def _save_metrics_history(self, metrics: Dict):
         """
         Save training metrics to history file for tracking model improvement.
 

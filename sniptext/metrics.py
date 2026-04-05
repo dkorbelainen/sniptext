@@ -1,7 +1,7 @@
 """Quality metrics for OCR results evaluation."""
 
 import re
-from typing import Optional
+from typing import Dict, List, Optional
 
 import numpy as np
 
@@ -26,7 +26,7 @@ class OCRQualityMetrics:
     def calculate_quality_score(
         self,
         text: str,
-        confidence_scores: Optional[list[float]] = None,
+        confidence_scores: Optional[List[float]] = None,
     ) -> float:
         """
         Calculate overall quality score for OCR result.
@@ -158,8 +158,8 @@ class OCRQualityMetrics:
 
     def compare_results(
         self,
-        result1: dict,
-        result2: dict,
+        result1: Dict,
+        result2: Dict,
     ) -> str:
         """
         Compare two OCR results and determine which is better.
@@ -181,7 +181,7 @@ class OCRQualityMetrics:
         return "result1" if score1 > score2 else "result2"
 
 
-def extract_confidence_scores(tesseract_data: dict) -> Optional[list[float]]:
+def extract_confidence_scores(tesseract_data: Dict) -> Optional[List[float]]:
     """
     Extract per-character confidence scores from Tesseract data.
 
