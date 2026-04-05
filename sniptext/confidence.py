@@ -18,6 +18,9 @@ _RETRAIN_EVERY = 20
 # Bump this when new features are added; stale models/feedback are discarded.
 _FEATURE_COUNT = 7
 
+# Schema version for feedback samples; bump when feedback format changes
+_FEEDBACK_SCHEMA_VERSION = 1
+
 
 class ConfidenceModel:
     """Model to predict OCR confidence and choose optimal strategy."""
@@ -284,8 +287,9 @@ class ConfidenceModel:
             fast_quality = fast_result.get("quality_score", 0.0)
             ensemble_quality = ensemble_result.get("quality_score", 0.0)
 
-            # Only record if there's a clear winner (>5% difference)
-            if abs(fast_quality - ensemble_quality) >= 0.05:
+            # Only record if there's a clear winner (>2% difference)
+            # Lowered threshold from 5% to capture more training data
+            if abs(fast_quality - ensemble_quality) >= 0.02:
                 if fast_quality > ensemble_quality:
                     winner = "fast"
                     label = 0
@@ -359,20 +363,16 @@ class ConfidenceModel:
             return
 
         if len(samples) < 10:
-            logger.debug("Not enough samples to retrain")
+            logger.warning(f"Could not retrain: only {len(samples)} samples (need ≥10)")
             return
 
-        # Drop samples with a mismatched feature vector (written by an older version).
-        valid = [s for s in samples if len(s.get("features", [])) == _FEATURE_COUNT]
-        if len(valid) < len(samples):
-            logger.warning(
-                f"Dropped {len(samples) - len(valid)} stale feedback samples "
-                f"(expected {_FEATURE_COUNT} features)"
-            )
-        samples = valid
+        # Try to migrate samples with mismatched feature count
+        samples = self._migrate_feedback_features(samples)
 
         if len(samples) < 10:
-            logger.debug("Not enough valid samples to retrain after filtering")
+            logger.warning(
+                f"Could not retrain after migration: only {len(samples)} valid samples (need ≥10)"
+            )
             return
 
         X = np.array([s["features"] for s in samples])
@@ -392,6 +392,13 @@ class ConfidenceModel:
                 random_state=42,
                 stratify=y if len(np.unique(y)) > 1 else None,
             )
+
+            # Warn if validation set is too small (< 5 samples = unreliable metrics)
+            if len(X_val) < 5:
+                logger.warning(
+                    f"Validation set very small ({len(X_val)} samples); "
+                    "accuracy metrics may be unreliable — collect more feedback"
+                )
 
             new_model = GradientBoostingClassifier(
                 n_estimators=50, max_depth=3, learning_rate=0.1, random_state=42
@@ -505,9 +512,64 @@ class ConfidenceModel:
                 else:
                     logger.info(f"CV accuracy: {cv_mean:.1%} ±{cv_std:.1%}")
             else:
-                logger.debug("Skipping CV: need at least 2 samples per class")
+                logger.info(
+                    f"Cross-validation skipped: minority class has {int(counts.min())} "
+                    f"samples (need ≥2 per class for {n_folds}-fold CV)"
+                )
         except Exception as e:
             logger.debug(f"CV evaluation skipped: {e}")
+
+    def _migrate_feedback_features(self, samples: list) -> list:
+        """
+        Migrate feedback samples when feature count changes.
+
+        If a sample has fewer features than current _FEATURE_COUNT,
+        pad it with average values from other samples (or defaults).
+        If a sample has more features, truncate it.
+
+        Args:
+            samples: List of feedback sample dicts (with 'features' key)
+
+        Returns:
+            List of migrated samples with correct feature count
+        """
+        migrated = []
+        dropped = 0
+
+        for sample in samples:
+            old_features = sample.get("features", [])
+            old_count = len(old_features)
+
+            if old_count == _FEATURE_COUNT:
+                # Already correct size
+                migrated.append(sample)
+            elif old_count > 0:
+                # Try to migrate: pad or truncate
+                if old_count < _FEATURE_COUNT:
+                    # Pad with average of provided features or 0.5 default
+                    avg_val = sum(old_features) / len(old_features) if old_features else 0.5
+                    new_features = old_features + [avg_val] * (_FEATURE_COUNT - old_count)
+                else:
+                    # Truncate
+                    new_features = old_features[:_FEATURE_COUNT]
+
+                sample["features"] = new_features
+                sample["_migrated"] = True
+                migrated.append(sample)
+            else:
+                # Empty features, can't migrate
+                dropped += 1
+
+        if dropped > 0:
+            logger.warning(f"Dropped {dropped} samples with empty feature vectors")
+
+        if len(migrated) < len(samples):
+            logger.info(
+                f"Migrated feedback: {len(migrated)} samples with adjusted features "
+                f"(from {samples[0].get('_old_feature_count', old_count)} to {_FEATURE_COUNT})"
+            )
+
+        return migrated
 
     def _load_model(self):
         """Load trained model from disk."""
