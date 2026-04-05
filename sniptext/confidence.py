@@ -18,10 +18,6 @@ _RETRAIN_EVERY = 20
 # Bump this when new features are added; stale models/feedback are discarded.
 _FEATURE_COUNT = 7
 
-# Schema version for feedback samples; bump when feedback format changes
-_FEEDBACK_SCHEMA_VERSION = 1
-
-
 class ConfidenceModel:
     """Model to predict OCR confidence and choose optimal strategy."""
 
