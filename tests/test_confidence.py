@@ -279,5 +279,111 @@ class TestSaveLoadModel:
         assert not (tmp_path / "model.pkl").exists()
 
 
+class TestColdStart:
+    """Test cold start scenarios (first run with no training data)."""
+
+    def test_cold_start_initializes_synthetic_baseline(self, model_in_tmp):
+        """On first use, model should initialize with synthetic data."""
+        try:
+            import sklearn  # noqa: F401
+        except ImportError:
+            pytest.skip("sklearn not installed")
+
+        model_in_tmp._ensure_initialized()
+        assert model_in_tmp.trained
+        assert model_in_tmp.model is not None
+
+    def test_cold_start_with_a_b_test(self, model_in_tmp):
+        """A/B test should work immediately with synthetic baseline."""
+        try:
+            import sklearn  # noqa: F401
+        except ImportError:
+            pytest.skip("sklearn not installed")
+
+        model_in_tmp._ensure_initialized()
+
+        # Simulate A/B test recording
+        features = np.array([0.5, 0.5, 0.5, 0.0, 0.5, 0.15, 0.05])
+        fast_result = {"text": "test", "quality_score": 0.8, "length": 4}
+        ensemble_result = {"text": "test", "quality_score": 0.7, "length": 4}
+
+        model_in_tmp.record_result(
+            features, fast_result=fast_result, ensemble_result=ensemble_result
+        )
+
+        assert model_in_tmp.feedback_path.exists()
+        lines = model_in_tmp.feedback_path.read_text().strip().splitlines()
+        assert len(lines) == 1
+
+    def test_cold_start_retrain_at_20_samples(self, model_in_tmp):
+        """Model should retrain after 20 feedback samples."""
+        try:
+            import sklearn  # noqa: F401
+        except ImportError:
+            pytest.skip("sklearn not installed")
+
+        model_in_tmp._ensure_initialized()
+
+        # Record 20 A/B test results
+        for i in range(20):
+            features = np.array([0.5 + i * 0.01, 0.5, 0.5, 0.0, 0.5, 0.15, 0.05])
+            if i % 2 == 0:
+                fast_result = {"text": "test", "quality_score": 0.8, "length": 4}
+                ensemble_result = {"text": "test", "quality_score": 0.7, "length": 4}
+            else:
+                fast_result = {"text": "test", "quality_score": 0.7, "length": 4}
+                ensemble_result = {"text": "test", "quality_score": 0.8, "length": 4}
+
+            model_in_tmp.record_result(
+                features, fast_result=fast_result, ensemble_result=ensemble_result
+            )
+
+        # At 20 samples, should trigger retrain
+        assert model_in_tmp.metrics_history_path.exists()
+        metrics = json.loads(model_in_tmp.metrics_history_path.read_text().strip())
+        assert metrics["n_samples"] == 20
+
+    def test_migrate_feedback_features_pads_missing(self, model_in_tmp):
+        """Feature migration should pad short feature vectors."""
+        old_samples = [
+            {"features": [0.5, 0.5], "label": 0, "winner": "fast"},  # 2 features
+            {"features": [0.3, 0.4, 0.6], "label": 1, "winner": "ensemble"},  # 3 features
+        ]
+
+        migrated = model_in_tmp._migrate_feedback_features(old_samples)
+
+        assert len(migrated) == 2
+        assert len(migrated[0]["features"]) == 7
+        assert len(migrated[1]["features"]) == 7
+        assert migrated[0]["_migrated"] is True
+
+    def test_migrate_feedback_features_truncates_extra(self, model_in_tmp):
+        """Feature migration should truncate long feature vectors."""
+        old_samples = [
+            {
+                "features": [0.5, 0.5, 0.5, 0.0, 0.5, 0.15, 0.05, 0.1, 0.2],
+                "label": 0,
+                "winner": "fast",
+            },
+        ]
+
+        migrated = model_in_tmp._migrate_feedback_features(old_samples)
+
+        assert len(migrated) == 1
+        assert len(migrated[0]["features"]) == 7
+
+    def test_migrate_feedback_drops_empty_features(self, model_in_tmp):
+        """Feature migration should drop samples with empty features."""
+        old_samples = [
+            {"features": [0.5, 0.5], "label": 0, "winner": "fast"},
+            {"features": [], "label": 1, "winner": "ensemble"},  # Empty
+            {"features": [0.3, 0.4, 0.6], "label": 0, "winner": "fast"},
+        ]
+
+        migrated = model_in_tmp._migrate_feedback_features(old_samples)
+
+        assert len(migrated) == 2
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
