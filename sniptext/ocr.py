@@ -445,14 +445,14 @@ class OCREngine:
             import pytesseract
             from pytesseract import Output
 
+            from .metrics import extract_confidence_scores
+
             # Re-run tesseract to get detailed data
             lang_code = self.config.ocr_language
             data = pytesseract.image_to_data(image, lang=lang_code, output_type=Output.DICT)
 
-            if data and "conf" in data:
-                # Filter out -1 confidence values
-                confidences = [float(c) for c in data["conf"] if c != -1]
-                return confidences if confidences else None
+            if data:
+                return extract_confidence_scores(data)
         except Exception as e:
             logger.debug(f"Could not extract confidence scores: {e}")
 
