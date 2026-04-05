@@ -18,6 +18,7 @@ _RETRAIN_EVERY = 20
 # Bump this when new features are added; stale models/feedback are discarded.
 _FEATURE_COUNT = 7
 
+
 class ConfidenceModel:
     """Model to predict OCR confidence and choose optimal strategy."""
 
@@ -520,8 +521,8 @@ class ConfidenceModel:
         Migrate feedback samples when feature count changes.
 
         If a sample has fewer features than current _FEATURE_COUNT,
-        pad it with average values from other samples (or defaults).
-        If a sample has more features, truncate it.
+        pad it with the average of that sample's existing features (or 0.5 default).
+        If a sample has more features, truncate it to _FEATURE_COUNT.
 
         Args:
             samples: List of feedback sample dicts (with 'features' key)
@@ -531,6 +532,8 @@ class ConfidenceModel:
         """
         migrated = []
         dropped = 0
+        padded = 0
+        truncated = 0
 
         for sample in samples:
             old_features = sample.get("features", [])
@@ -545,9 +548,11 @@ class ConfidenceModel:
                     # Pad with average of provided features or 0.5 default
                     avg_val = sum(old_features) / len(old_features) if old_features else 0.5
                     new_features = old_features + [avg_val] * (_FEATURE_COUNT - old_count)
+                    padded += 1
                 else:
                     # Truncate
                     new_features = old_features[:_FEATURE_COUNT]
+                    truncated += 1
 
                 sample["features"] = new_features
                 sample["_migrated"] = True
@@ -559,10 +564,10 @@ class ConfidenceModel:
         if dropped > 0:
             logger.warning(f"Dropped {dropped} samples with empty feature vectors")
 
-        if len(migrated) < len(samples):
+        if padded > 0 or truncated > 0:
             logger.info(
-                f"Migrated feedback: {len(migrated)} samples with adjusted features "
-                f"(from {samples[0].get('_old_feature_count', old_count)} to {_FEATURE_COUNT})"
+                f"Migrated feedback: {padded} padded, {truncated} truncated "
+                f"to {_FEATURE_COUNT} features"
             )
 
         return migrated
