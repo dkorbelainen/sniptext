@@ -4,7 +4,9 @@ Main entry point for the application.
 """
 
 import argparse
+import json
 import sys
+import urllib.request
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
 from typing import Optional
@@ -29,6 +31,37 @@ def setup_logging(verbose: bool = False):
             format="<level>{level: <8}</level> {message}",
             level="INFO",
         )
+
+
+def _capture_via_daemon(port: int = 9877) -> Optional[str]:
+    """Connect to daemon and request capture. Returns text on success, False on error, None if cancelled."""
+    url = f"http://localhost:{port}/capture"
+    try:
+        logger.info(f"Connecting to daemon at {url}...")
+        request = urllib.request.Request(url, method="POST")
+        with urllib.request.urlopen(request, timeout=30) as response:
+            data = json.loads(response.read().decode())
+            if response.status == 200:
+                text = data.get("text", "")
+                logger.info(f"Captured {len(text)} chars via daemon")
+                return text
+            else:
+                logger.error(f"Daemon error: {data.get('error', 'Unknown')}")
+                return False
+    except ConnectionRefusedError:
+        logger.error(f"Cannot connect to daemon at localhost:{port}")
+        logger.error("Start daemon with: sniptext serve")
+        return False
+    except urllib.error.HTTPError as e:
+        error_data = json.loads(e.read().decode())
+        if error_data.get("error") == "Capture cancelled or failed":
+            logger.info("Capture cancelled")
+            return None
+        logger.error(f"Daemon HTTP error: {error_data.get('error', str(e))}")
+        return False
+    except Exception as e:
+        logger.error(f"Failed to connect to daemon: {e}")
+        return False
 
 
 def _output_result(
@@ -141,6 +174,23 @@ def main():
         action="store_true",
         help="List available config profiles and exit",
     )
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=["serve"],
+        help="Optional commands: 'serve' to start daemon mode",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=9877,
+        help="Port for daemon server (default: 9877)",
+    )
+    parser.add_argument(
+        "--client",
+        action="store_true",
+        help="Connect to daemon for capture instead of running locally",
+    )
 
     args = parser.parse_args()
 
@@ -148,6 +198,36 @@ def main():
         parser.error(
             "--output requires either --file or --capture-now; it is not supported in hotkey-only mode."
         )
+
+    # Handle 'serve' command for daemon mode
+    if args.command == "serve":
+        from sniptext.config import Config
+        from sniptext.daemon import SnipTextDaemon
+
+        setup_logging(args.verbose)
+        logger.info("Starting SnipText daemon...")
+
+        if args.profile:
+            try:
+                config = Config.load_with_profile(args.config, args.profile)
+            except FileNotFoundError as e:
+                print(f"✗ {e}")
+                return 1
+            logger.info(f"Loaded config with profile {args.profile!r}")
+        else:
+            config = Config.load(args.config)
+        logger.info(f"Loaded configuration from {args.config}")
+
+        daemon = SnipTextDaemon(config, port=args.port)
+        try:
+            daemon.start()
+        except KeyboardInterrupt:
+            logger.info("Daemon shutdown")
+            return 0
+        except Exception as e:
+            logger.error(f"Daemon error: {e}")
+            return 1
+        return 0
 
     from sniptext.config import Config
     from sniptext.history import HistoryManager
@@ -240,17 +320,32 @@ def main():
             except (OSError, _PIL_UnidentifiedImageError) as e:
                 logger.error(f"Failed to open image file '{args.file}': {e}")
                 return 2
-        elif args.capture_now:
+            text = None
+        elif args.capture_now and not args.client:
             screen_capture = ScreenCapture(config)
             logger.info("Capturing screen...")
             image = screen_capture.capture_region()
             if image is None:
                 logger.error("Failed to capture screen")
                 return 1
+            text = None
+        elif args.client and args.capture_now:
+            # Use daemon client for capture
+            text = _capture_via_daemon(args.port)
+            if text is False:
+                return 1
+            image = None
         else:
             image = None
+            text = None
 
-        if image is not None:
+        if text is not None:
+            # Text from daemon client — already captured and copied
+            rc = _output_result(text, clipboard_manager, args.output, history_manager)
+            if rc != 0:
+                return rc
+        elif image is not None:
+            # Local image to process
             logger.info("Running OCR...")
             text = ocr_engine.recognize(image)
             rc = _output_result(text, clipboard_manager, args.output, history_manager)
