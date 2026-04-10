@@ -34,7 +34,7 @@ def setup_logging(verbose: bool = False):
 
 
 def _capture_via_daemon(port: int = 9877) -> Optional[str]:
-    """Connect to daemon and request capture. Returns text on success, False on error, None if cancelled."""
+    """Connect to daemon and request capture. Returns text on success, None if error or cancelled."""
     url = f"http://localhost:{port}/capture"
     try:
         logger.info(f"Connecting to daemon at {url}...")
@@ -47,21 +47,27 @@ def _capture_via_daemon(port: int = 9877) -> Optional[str]:
                 return text
             else:
                 logger.error(f"Daemon error: {data.get('error', 'Unknown')}")
-                return False
-    except ConnectionRefusedError:
-        logger.error(f"Cannot connect to daemon at localhost:{port}")
-        logger.error("Start daemon with: sniptext serve")
-        return False
+                return None
+    except urllib.error.URLError as e:
+        if isinstance(e.reason, ConnectionRefusedError):
+            logger.error(f"Cannot connect to daemon at localhost:{port}")
+            logger.error("Start daemon with: sniptext serve")
+        else:
+            logger.error(f"Failed to connect to daemon: {e.reason}")
+        return None
     except urllib.error.HTTPError as e:
-        error_data = json.loads(e.read().decode())
-        if error_data.get("error") == "Capture cancelled or failed":
-            logger.info("Capture cancelled")
-            return None
-        logger.error(f"Daemon HTTP error: {error_data.get('error', str(e))}")
-        return False
+        try:
+            error_data = json.loads(e.read().decode())
+            if error_data.get("error") == "Capture cancelled or failed":
+                logger.info("Capture cancelled")
+                return None
+            logger.error(f"Daemon HTTP error: {error_data.get('error')}")
+        except (json.JSONDecodeError, OSError):
+            logger.error(f"Daemon HTTP {e.code}: {e.reason}")
+        return None
     except Exception as e:
-        logger.error(f"Failed to connect to daemon: {e}")
-        return False
+        logger.error(f"Failed to communicate with daemon: {e}")
+        return None
 
 
 def _output_result(
@@ -69,19 +75,34 @@ def _output_result(
     clipboard_manager,
     output_path: Optional[Path],
     history_manager=None,
+    skip_clipboard: bool = False,
+    skip_history: bool = False,
 ) -> int:
-    """Print, copy, and optionally write OCR result. Returns exit code."""
+    """Print, copy, and optionally write OCR result. Returns exit code.
+
+    Args:
+        text: Recognized text
+        clipboard_manager: Clipboard manager instance
+        output_path: Optional file path to write text to
+        history_manager: Optional history manager instance
+        skip_clipboard: Skip clipboard copy (used when daemon already copied)
+        skip_history: Skip history append (used when daemon already recorded)
+    """
     if not text:
         print("✗ No text recognized")
         return 0
 
     print(text)
 
-    copied = clipboard_manager.copy(text)
-    if copied:
-        print(f"\n✓ Copied {len(text)} characters to clipboard")
+    if not skip_clipboard:
+        copied = clipboard_manager.copy(text)
+        if copied:
+            print(f"\n✓ Copied {len(text)} characters to clipboard")
+        else:
+            logger.error("Failed to copy text to clipboard")
+            return 1
     else:
-        logger.error("Failed to copy text to clipboard")
+        print(f"\n✓ {len(text)} characters (from daemon)")
 
     if output_path is not None:
         try:
@@ -91,10 +112,10 @@ def _output_result(
             logger.error(f"Failed to write output file: {e}")
             return 1
 
-    if history_manager is not None:
+    if not skip_history and history_manager is not None:
         history_manager.append(text)
 
-    return 0 if copied else 1
+    return 0
 
 
 def main():
@@ -332,7 +353,7 @@ def main():
         elif args.client and args.capture_now:
             # Use daemon client for capture
             text = _capture_via_daemon(args.port)
-            if text is False:
+            if text is None:
                 return 1
             image = None
         else:
@@ -341,7 +362,14 @@ def main():
 
         if text is not None:
             # Text from daemon client — already captured and copied
-            rc = _output_result(text, clipboard_manager, args.output, history_manager)
+            rc = _output_result(
+                text,
+                clipboard_manager,
+                args.output,
+                history_manager,
+                skip_clipboard=True,
+                skip_history=True,
+            )
             if rc != 0:
                 return rc
         elif image is not None:

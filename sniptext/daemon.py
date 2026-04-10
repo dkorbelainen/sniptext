@@ -2,7 +2,6 @@
 
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from threading import Thread
 from typing import Optional
 
 from loguru import logger
@@ -40,13 +39,13 @@ class SnipTextHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         """Handle GET requests."""
-        if self.path.startswith("/history"):
-            self._handle_history()
-        elif self.path == "/health":
+        if self.path == "/health":
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"status": "ok"}).encode())
+        elif self.path.startswith("/history"):
+            self._handle_history()
         else:
             self.send_response(404)
             self.send_header("Content-Type", "application/json")
@@ -95,11 +94,11 @@ class SnipTextHandler(BaseHTTPRequestHandler):
             logger.info(f"Captured {len(text)} chars via daemon API")
 
         except Exception as e:
-            logger.error(f"Capture error: {e}")
+            logger.exception(f"Capture error: {e}")
             self.send_response(500)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps({"error": str(e)}).encode())
+            self.wfile.write(json.dumps({"error": "Internal server error"}).encode())
 
     def _handle_history(self):
         """Handle GET /history[?n=N]: retrieve history."""
@@ -128,11 +127,11 @@ class SnipTextHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"entries": entries}).encode())
 
         except Exception as e:
-            logger.error(f"History error: {e}")
+            logger.exception(f"History error: {e}")
             self.send_response(500)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps({"error": str(e)}).encode())
+            self.wfile.write(json.dumps({"error": "Internal server error"}).encode())
 
 
 class SnipTextDaemon:
@@ -143,7 +142,10 @@ class SnipTextDaemon:
         self.config = config
         self.port = port
         self.server: Optional[HTTPServer] = None
-        self.thread: Optional[Thread] = None
+        self.ocr_engine: Optional[OCREngine] = None
+        self.clipboard_manager: Optional[ClipboardManager] = None
+        self.screen_capture: Optional[ScreenCapture] = None
+        self.history_manager: Optional[HistoryManager] = None
 
     def start(self):
         """Start the daemon server."""
@@ -151,20 +153,20 @@ class SnipTextDaemon:
             logger.info(f"Initializing SnipText daemon on port {self.port}...")
 
             # Initialize components
-            ocr_engine = OCREngine(self.config)
-            clipboard_manager = ClipboardManager()
-            screen_capture = ScreenCapture(self.config)
-            history_manager = (
+            self.ocr_engine = OCREngine(self.config)
+            self.clipboard_manager = ClipboardManager()
+            self.screen_capture = ScreenCapture(self.config)
+            self.history_manager = (
                 HistoryManager(max_size=self.config.history_size)
                 if self.config.history_enabled
                 else None
             )
 
             # Set class-level references for handler
-            SnipTextHandler.ocr_engine = ocr_engine
-            SnipTextHandler.clipboard_manager = clipboard_manager
-            SnipTextHandler.screen_capture = screen_capture
-            SnipTextHandler.history_manager = history_manager
+            SnipTextHandler.ocr_engine = self.ocr_engine
+            SnipTextHandler.clipboard_manager = self.clipboard_manager
+            SnipTextHandler.screen_capture = self.screen_capture
+            SnipTextHandler.history_manager = self.history_manager
             SnipTextHandler.config = self.config
 
             # Create server
@@ -180,11 +182,18 @@ class SnipTextDaemon:
             logger.info("Daemon shutdown requested")
             self.stop()
         except Exception as e:
-            logger.error(f"Daemon error: {e}")
+            logger.exception(f"Daemon error: {e}")
             raise
 
     def stop(self):
-        """Stop the daemon server."""
+        """Stop the daemon server and cleanup resources."""
         if self.server:
             self.server.shutdown()
-            logger.info("Daemon stopped")
+            self.server.server_close()
+            logger.info("Daemon server closed")
+
+        if self.clipboard_manager:
+            self.clipboard_manager.cleanup()
+            logger.info("Clipboard manager cleaned up")
+
+        logger.info("Daemon stopped")
