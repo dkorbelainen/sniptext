@@ -46,6 +46,11 @@ Supports any format that Pillow can open (PNG, JPEG, BMP, TIFF, …).
 .BR \-\-output " \fIFILE\fR"
 Write the recognised text to \fIFILE\fR in addition to copying it to the
 clipboard.  Only valid with \fB\-\-capture\-now\fR or \fB\-\-file\fR.
+.TP
+.BR \-i ", " \-\-interactive
+Show an interactive preview of the OCR result in the terminal.  Allows
+reviewing and editing the text before copying to clipboard.
+
 .SS OCR
 .TP
 .BR \-\-ocr\-engine " \fIENGINE\fR"
@@ -54,11 +59,29 @@ Override the OCR engine for this run.  One of \fBtesseract\fR,
 .TP
 .B \-\-list\-models
 List available OCR backends and exit.
+.TP
+.BR \-\-benchmark " \fIIMAGE\fR"
+Benchmark all available OCR engines on an image file and show timing results.
+Useful for identifying the fastest engine for your workflow.
+
 .SS History
 .TP
 .BR \-\-history " [\fIN\fR]"
 Print the last \fIN\fR captured texts from history (default: 10) and exit.
 Each entry is printed with its UTC timestamp.
+.SS Daemon
+.TP
+.B serve
+Start sniptext in daemon mode.  Keeps OCR models in memory for faster
+subsequent captures.  Useful on Wayland systems with high OCR latency.
+.TP
+.BR \-\-client
+Connect to a running daemon (started with \fBsniptext serve\fR) for capture
+instead of running OCR locally.
+.TP
+.BR \-\-port " \fIPORT\fR"
+Port for daemon server (default: 9877).  Only used with \fBserve\fR command.
+
 .SS Configuration
 .TP
 .B \-\-print\-config
@@ -144,6 +167,25 @@ Capture a region immediately and copy to clipboard:
 .PP
 .nf
     sniptext \-\-capture\-now
+.fi
+.PP
+Review and edit OCR result before copying:
+.PP
+.nf
+    sniptext \-\-capture\-now \-\-interactive
+.fi
+.PP
+Benchmark OCR engines on an image:
+.PP
+.nf
+    sniptext \-\-benchmark screenshot.png
+.fi
+.PP
+Start daemon server for faster Wayland captures:
+.PP
+.nf
+    sniptext serve
+    sniptext \-\-capture\-now \-\-client
 .fi
 .PP
 Run OCR on an existing file and save the result:

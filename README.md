@@ -30,7 +30,12 @@ yay -S sniptext
 
 **Test:** `sniptext --capture-now`
 
-Run `sniptext --help` for all flags. Use `sniptext --print-config` to view current settings with descriptions.
+**Additional flags:**
+- `--interactive` / `-i` — Review and edit OCR result before copying
+- `--benchmark IMAGE` — Benchmark all OCR engines on an image
+- `--file IMAGE` — Run OCR on a file without capturing
+
+See `sniptext --help` for complete options and `sniptext --print-config` for current settings.
 
 ## Language Support
 
@@ -72,6 +77,7 @@ use_gpu: true               # CUDA acceleration
 **Adaptive Ensemble:** Automatically uses fast mode for clear images, accurate mode for difficult ones.
 
 **Note:** Optional features (spell correction, EasyOCR, ML analysis) are auto-detected when installed.
+
 
 ## Optional Dependencies
 
