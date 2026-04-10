@@ -1,6 +1,6 @@
 """Interactive text preview and confirmation UI."""
 
-from typing import Optional
+from typing import Tuple
 
 from loguru import logger
 
@@ -22,7 +22,7 @@ class TextPreview:
         except ImportError:
             return False
 
-    def show_preview(self, text: str, allow_edit: bool = False) -> Optional[tuple[str, bool]]:
+    def show_preview(self, text: str, allow_edit: bool = False) -> Tuple[str, bool]:
         """Show interactive preview of recognized text.
 
         Args:
@@ -30,7 +30,7 @@ class TextPreview:
             allow_edit: Allow user to edit text (requires interactive terminal)
 
         Returns:
-            tuple of (modified_text, should_copy) or None if cancelled
+            tuple of (modified_text, should_copy)
             - modified_text: User's final text (original or edited)
             - should_copy: True if user confirmed, False if cancelled
         """
@@ -40,6 +40,7 @@ class TextPreview:
         try:
             from rich.console import Console
             from rich.panel import Panel
+            from rich.prompt import Prompt
             from rich.text import Text
 
             console = Console()
@@ -65,7 +66,15 @@ class TextPreview:
             # Get user input
             while True:
                 try:
-                    choice = console.input("[bold]Action:[/bold] ").strip().lower()
+                    choice = (
+                        Prompt.ask(
+                            "[bold]Action[/bold]",
+                            choices=["c", "q", "e"] if allow_edit else ["c", "q"],
+                            default="c",
+                        )
+                        .strip()
+                        .lower()
+                    )
 
                     if choice in ("", "c"):
                         return (text, True)
@@ -73,8 +82,8 @@ class TextPreview:
                         console.print("[red]Cancelled[/red]")
                         return (text, False)
                     elif choice == "e" and allow_edit:
-                        # Simple line editor
-                        edited = console.input("[bold]Edit text:[/bold] ", default=text)
+                        # Edit using Prompt.ask with default
+                        edited = Prompt.ask("[bold]Edit text[/bold]", default=text)
                         if edited:
                             console.print(f"[green]✓ Updated[/green] ({len(edited)} chars)")
                             return (edited, True)
@@ -89,7 +98,7 @@ class TextPreview:
             return self._show_fallback_preview(text)
 
     @staticmethod
-    def _show_fallback_preview(text: str) -> Optional[tuple[str, bool]]:
+    def _show_fallback_preview(text: str) -> Tuple[str, bool]:
         """Fallback preview without rich library."""
         print("\n" + "=" * 60)
         print("OCR RESULT:")

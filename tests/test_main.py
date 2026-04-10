@@ -380,3 +380,102 @@ class TestProfiles:
 
         assert result == 1
         assert "nosuch" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# --interactive
+# ---------------------------------------------------------------------------
+
+
+class TestInteractiveFlag:
+    def test_interactive_with_confirm_returns_zero(self, capsys):
+        fake_image = MagicMock()
+        with _run_main(["--capture-now", "--interactive"]) as (
+            _,
+            MockOCR,
+            MockCapture,
+            MockClipboard,
+            _,
+            config,
+        ):
+            MockCapture.return_value.capture_region.return_value = fake_image
+            MockOCR.return_value.recognize.return_value = "hello world"
+            MockClipboard.return_value.copy.return_value = True
+
+            with patch("sniptext.preview.TextPreview.show_preview") as mock_preview:
+                mock_preview.return_value = ("hello world", True)
+                result = main()
+
+        assert result == 0
+        assert "hello world" in capsys.readouterr().out
+        mock_preview.assert_called_once_with("hello world", allow_edit=True)
+
+    def test_interactive_with_cancel_returns_zero(self, capsys):
+        fake_image = MagicMock()
+        with _run_main(["--capture-now", "--interactive"]) as (
+            _,
+            MockOCR,
+            MockCapture,
+            MockClipboard,
+            _,
+            config,
+        ):
+            MockCapture.return_value.capture_region.return_value = fake_image
+            MockOCR.return_value.recognize.return_value = "hello"
+            MockClipboard.return_value.copy.return_value = False
+
+            with patch("sniptext.preview.TextPreview.show_preview") as mock_preview:
+                mock_preview.return_value = ("hello", False)
+                result = main()
+
+        assert result == 0
+        MockClipboard.return_value.copy.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# --benchmark
+# ---------------------------------------------------------------------------
+
+
+class TestBenchmarkFlag:
+    def test_benchmark_exits_zero(self, capsys, tmp_path):
+        test_image = tmp_path / "test.png"
+        test_image.write_bytes(b"fake")
+
+        with patch("sys.argv", ["sniptext", "--benchmark", str(test_image)]):
+            with patch("sniptext.config.Config.load") as MockConfigLoad:
+                with patch("sniptext.benchmark.OCRBenchmark") as MockBench:
+                    mock_config = MagicMock()
+                    MockConfigLoad.return_value = mock_config
+
+                    mock_bench_instance = MagicMock()
+                    mock_bench_instance.benchmark_file.return_value = {
+                        "tesseract": {"status": "ok"}
+                    }
+                    MockBench.return_value = mock_bench_instance
+
+                    result = main()
+
+        assert result == 0
+
+    def test_benchmark_does_not_start_capture(self, tmp_path):
+        test_image = tmp_path / "test.png"
+        test_image.write_bytes(b"fake")
+
+        with (
+            patch("sys.argv", ["sniptext", "--benchmark", str(test_image)]),
+            patch("sniptext.config.Config.load") as MockConfigLoad,
+            patch("sniptext.capture.ScreenCapture") as MockCapture,
+            patch("sniptext.benchmark.OCRBenchmark") as MockBench,
+            patch("sniptext.__main__.setup_logging"),
+        ):
+            mock_config = MagicMock()
+            MockConfigLoad.return_value = mock_config
+
+            mock_bench_instance = MagicMock()
+            mock_bench_instance.benchmark_file.return_value = {"tesseract": {"status": "ok"}}
+            MockBench.return_value = mock_bench_instance
+
+            main()
+
+        MockCapture.assert_not_called()

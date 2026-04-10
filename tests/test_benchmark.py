@@ -1,6 +1,6 @@
 """Tests for sniptext.benchmark OCR engine benchmarking."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from PIL import Image
 
@@ -38,7 +38,7 @@ class TestOCRBenchmark:
 
     @patch("sniptext.benchmark.OCRBenchmark.print_summary")
     def test_benchmark_file_success(self, mock_print, tmp_path):
-        """Test successful benchmark on valid image."""
+        """Test successful benchmark on valid image with mocked backends."""
         config_file = tmp_path / "config.yaml"
         config_file.write_text("ocr_engine: tesseract\ndisplay_server: x11\nhotkey: ctrl+alt+s\n")
 
@@ -50,13 +50,20 @@ class TestOCRBenchmark:
         config = Config.load(config_file)
         benchmark = OCRBenchmark(config)
 
-        result = benchmark.benchmark_file(image_path)
+        # Mock backends instead of running real OCR
+        with patch.object(benchmark.engine, "backends") as mock_backends:
+            mock_backend = MagicMock()
+            mock_backend.is_available.return_value = True
+            mock_backend.recognize.return_value = "test text"
+            mock_backends.items.return_value = [("mock_tesseract", mock_backend)]
+
+            result = benchmark.benchmark_file(image_path)
 
         # Result should be a dict with backend names as keys
-        if result:
-            for backend_name, data in result.items():
-                assert isinstance(backend_name, str)
-                assert isinstance(data, dict)
+        assert result is not None
+        assert "mock_tesseract" in result
+        assert result["mock_tesseract"]["status"] == "ok"
+        assert result["mock_tesseract"]["chars_recognized"] == 9
 
     def test_print_summary_empty(self, tmp_path, capsys):
         """Test print_summary with no results."""

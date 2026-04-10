@@ -2,14 +2,21 @@
 
 import time
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, TypedDict
 
-import numpy as np
 from loguru import logger
 from PIL import Image
 
 from .config import Config
 from .ocr import OCREngine
+
+
+class BenchmarkResult(TypedDict, total=False):
+    """Result structure for a single engine benchmark."""
+
+    time_seconds: float
+    chars_recognized: int
+    status: str
 
 
 class OCRBenchmark:
@@ -23,37 +30,36 @@ class OCRBenchmark:
         """
         self.config = config
         self.engine = OCREngine(config)
-        self.results: Dict[str, Dict[str, float]] = {}
+        self.results: Dict[str, Dict[str, BenchmarkResult]] = {}
 
-    def benchmark_file(self, image_path: Path) -> Optional[Dict[str, Dict[str, float]]]:
+    def benchmark_file(self, image_path: Path) -> Optional[Dict[str, BenchmarkResult]]:
         """Benchmark all available OCR engines on a single image.
 
         Args:
             image_path: Path to image file
 
         Returns:
-            Dictionary of results: {engine_name: {time: float, chars: int, status: str}}
+            Dictionary of results: {engine_name: {time_seconds: float, chars_recognized: int, status: str}}
         """
         try:
-            with Image.open(image_path) as pil_image:
-                image_array = np.array(pil_image)
+            pil_image = Image.open(image_path)
         except Exception as e:
             logger.error(f"Failed to load image {image_path}: {e}")
             return None
 
-        results = {}
+        results: Dict[str, BenchmarkResult] = {}
 
         # Test each backend
         for backend_name, backend in self.engine.backends.items():
             if not backend.is_available():
-                results[backend_name] = {"status": "unavailable"}
+                results[backend_name] = {"status": "unavailable"}  # type: ignore
                 continue
 
             try:
                 logger.info(f"Benchmarking {backend_name}...")
 
                 start_time = time.perf_counter()
-                text = backend.recognize(image_array)
+                text = backend.recognize(pil_image)
                 elapsed = time.perf_counter() - start_time
 
                 results[backend_name] = {

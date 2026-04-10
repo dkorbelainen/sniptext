@@ -99,10 +99,7 @@ def _output_result(
         from sniptext.preview import TextPreview
 
         preview = TextPreview()
-        result = preview.show_preview(text, allow_edit=True)
-        if result is None:
-            return 0
-        text, should_copy = result
+        text, should_copy = preview.show_preview(text, allow_edit=True)
         if not should_copy:
             return 0
 
