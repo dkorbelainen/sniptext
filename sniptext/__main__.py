@@ -77,6 +77,7 @@ def _output_result(
     history_manager=None,
     skip_clipboard: bool = False,
     skip_history: bool = False,
+    interactive: bool = False,
 ) -> int:
     """Print, copy, and optionally write OCR result. Returns exit code.
 
@@ -87,10 +88,23 @@ def _output_result(
         history_manager: Optional history manager instance
         skip_clipboard: Skip clipboard copy (used when daemon already copied)
         skip_history: Skip history append (used when daemon already recorded)
+        interactive: Show interactive preview and allow user confirmation/editing
     """
     if not text:
         print("✗ No text recognized")
         return 0
+
+    # Interactive preview mode (if enabled and not from daemon)
+    if interactive and not skip_clipboard:
+        from sniptext.preview import TextPreview
+
+        preview = TextPreview()
+        result = preview.show_preview(text, allow_edit=True)
+        if result is None:
+            return 0
+        text, should_copy = result
+        if not should_copy:
+            return 0
 
     print(text)
 
@@ -212,6 +226,18 @@ def main():
         action="store_true",
         help="Connect to daemon for capture instead of running locally",
     )
+    parser.add_argument(
+        "-i",
+        "--interactive",
+        action="store_true",
+        help="Show interactive preview before copying (allows confirmation/editing)",
+    )
+    parser.add_argument(
+        "--benchmark",
+        type=Path,
+        metavar="IMAGE",
+        help="Benchmark OCR engines on an image file",
+    )
 
     args = parser.parse_args()
 
@@ -255,6 +281,18 @@ def main():
 
     setup_logging(args.verbose)
     logger.info("Starting SnipText...")
+
+    # Handle --benchmark flag
+    if args.benchmark:
+        config = Config.load(args.config)
+        from sniptext.benchmark import OCRBenchmark
+
+        benchmark = OCRBenchmark(config)
+        result = benchmark.benchmark_file(args.benchmark)
+        if result:
+            benchmark.print_summary()
+            return 0
+        return 1
 
     if args.list_profiles:
         profiles = Config.list_profiles(args.config)
@@ -369,6 +407,7 @@ def main():
                 history_manager,
                 skip_clipboard=True,
                 skip_history=True,
+                interactive=False,  # Daemon already processed
             )
             if rc != 0:
                 return rc
@@ -376,7 +415,13 @@ def main():
             # Local image to process
             logger.info("Running OCR...")
             text = ocr_engine.recognize(image)
-            rc = _output_result(text, clipboard_manager, args.output, history_manager)
+            rc = _output_result(
+                text,
+                clipboard_manager,
+                args.output,
+                history_manager,
+                interactive=args.interactive,
+            )
             if rc != 0:
                 return rc
         else:

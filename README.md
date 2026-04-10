@@ -20,6 +20,11 @@ Screen text extractor with OCR and spell correction for Arch Linux.
 yay -S sniptext
 ```
 
+**Flatpak** (for non-Arch systems):
+```bash
+flatpak install org.sniptext.SnipText
+```
+
 **Important:** Set up a keyboard shortcut after installation. See [KEYBINDINGS.md](KEYBINDINGS.md)
 
 ## Usage
@@ -30,7 +35,12 @@ yay -S sniptext
 
 **Test:** `sniptext --capture-now`
 
-Run `sniptext --help` for all flags. Use `sniptext --print-config` to view current settings with descriptions.
+**Additional flags:**
+- `--interactive` / `-i` — Review and edit OCR result before copying
+- `--benchmark IMAGE` — Benchmark all OCR engines on an image
+- `--file IMAGE` — Run OCR on a file without capturing
+
+See `sniptext --help` for complete options and `sniptext --print-config` for current settings.
 
 ## Language Support
 
@@ -72,6 +82,7 @@ use_gpu: true               # CUDA acceleration
 **Adaptive Ensemble:** Automatically uses fast mode for clear images, accurate mode for difficult ones.
 
 **Note:** Optional features (spell correction, EasyOCR, ML analysis) are auto-detected when installed.
+
 
 ## Optional Dependencies
 
