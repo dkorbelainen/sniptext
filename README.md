@@ -20,11 +20,6 @@ Screen text extractor with OCR and spell correction for Arch Linux.
 yay -S sniptext
 ```
 
-**Flatpak** (for non-Arch systems):
-```bash
-flatpak install org.sniptext.SnipText
-```
-
 **Important:** Set up a keyboard shortcut after installation. See [KEYBINDINGS.md](KEYBINDINGS.md)
 
 ## Usage
