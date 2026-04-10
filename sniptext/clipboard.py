@@ -56,8 +56,9 @@ class ClipboardManager:
                     try:
                         self._wl_process.terminate()
                         try:
-                            # Wait for the process to exit to avoid zombies
-                            self._wl_process.wait(timeout=1.0)
+                            # Wait a bit longer to ensure stdin is flushed and compositor
+                            # has registered the selection before we terminate
+                            self._wl_process.wait(timeout=0.2)
                         except subprocess.TimeoutExpired:
                             logger.warning(
                                 "Previous wl-copy process did not exit in time; killing it."
@@ -92,8 +93,10 @@ class ClipboardManager:
                     logger.error(f"wl-copy closed unexpectedly: {stderr}")
                     return False
 
-                # Give compositor a moment to register the new selection
-                time.sleep(0.05)
+                # Ensure wl-copy has consumed stdin and is now serving the clipboard.
+                # Small delay to let the compositor register the new selection, and
+                # to ensure the process is ready before we kill the old one on next call.
+                time.sleep(0.1)
 
                 # Check if it started successfully — wl-copy must still be
                 # running to keep the Wayland clipboard selection alive.

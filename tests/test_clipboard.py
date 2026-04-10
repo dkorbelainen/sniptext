@@ -297,3 +297,45 @@ class TestPasteEdgeCases:
         mgr = _make_manager({"xclip": "/usr/bin/xclip"})
         with patch("sniptext.clipboard.subprocess.run", side_effect=OSError("oops")):
             assert mgr.paste() is None
+
+
+class TestSequentialCopy:
+    def test_rapid_wayland_copies_use_latest_text(self):
+        """Test that rapid successive copies update correctly without stale data."""
+        with (
+            patch.dict("os.environ", {"WAYLAND_DISPLAY": ":0"}),
+            patch("shutil.which") as mock_which,
+        ):
+            mock_which.return_value = "/usr/bin/wl-copy"
+            with patch("subprocess.Popen") as mock_popen:
+                # Mock successful wl-copy processes
+                processes = []
+                for _ in range(3):
+                    proc = MagicMock()
+                    proc.poll.return_value = None  # Process still running
+                    proc.stdin = MagicMock()
+                    proc.stderr = MagicMock()
+                    proc.stderr.read.return_value = b""
+                    processes.append(proc)
+
+                mock_popen.side_effect = processes
+
+                cm = ClipboardManager()
+
+                # Rapid copies
+                result1 = cm.copy("text1")
+                result2 = cm.copy("text2")
+                result3 = cm.copy("text3")
+
+                assert result1 is True
+                assert result2 is True
+                assert result3 is True
+
+                # Verify all three texts were written
+                calls = [call.args[0] for call in mock_popen.call_args_list]
+                assert all(c == ["wl-copy"] for c in calls)
+                assert len(calls) == 3
+
+                # Each copy should terminate the previous process
+                for proc in processes[:-1]:
+                    assert proc.terminate.called or proc.kill.called
