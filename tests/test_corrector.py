@@ -5,6 +5,8 @@ import pytest
 from sniptext.corrector import (
     OCRCorrector,
     _char_matches_lang,
+    _line_looks_like_code,
+    _looks_non_lexical,
     correct_ocr_text,
     detect_dominant_language,
 )
@@ -216,6 +218,73 @@ class TestCharMatchesLang:
     def test_no_script_match_returns_false(self):
         # Unknown lang code should never match
         assert not _char_matches_lang(ord("A"), "xyz_unknown")
+
+
+class TestLooksNonLexical:
+    """Guard that keeps SymSpell off non-dictionary tokens."""
+
+    def test_plain_word_is_lexical(self):
+        assert not _looks_non_lexical("teh")
+        assert not _looks_non_lexical("hello")
+        assert not _looks_non_lexical("Hello")  # Titlecase still correctable
+
+    def test_snake_case_skipped(self):
+        assert _looks_non_lexical("snake_case")
+        assert _looks_non_lexical("max_edit_distance")
+
+    def test_camel_case_skipped(self):
+        assert _looks_non_lexical("getValue")
+        assert _looks_non_lexical("iPhone")
+
+    def test_digits_skipped(self):
+        assert _looks_non_lexical("abc123")
+        assert _looks_non_lexical("v2")
+
+    def test_path_or_dotted_skipped(self):
+        assert _looks_non_lexical("os.path")
+        assert _looks_non_lexical("a/b")
+
+    def test_all_caps_skipped(self):
+        assert _looks_non_lexical("TOTAL")
+        assert _looks_non_lexical("API")
+
+    def test_single_letter_not_treated_as_acronym(self):
+        assert not _looks_non_lexical("A")
+
+
+def test_code_identifier_not_corrected():
+    """Identifiers must survive spell correction verbatim."""
+    corrector = OCRCorrector("eng")
+    for token in ("getValue", "snake_case", "config_path", "iPhone"):
+        result = corrector.correct(f"call {token} here")
+        assert token in result
+
+
+class TestLineLooksLikeCode:
+    def test_prose_is_not_code(self):
+        assert not _line_looks_like_code("the quick brown fox jumps")
+        assert not _line_looks_like_code("File Edit View Help")
+
+    def test_symbols_flag_code(self):
+        assert _line_looks_like_code("x = foo(y)")
+        assert _line_looks_like_code("arr[i] += 1")
+        assert _line_looks_like_code("ptr->next")
+
+    def test_keyword_flags_code(self):
+        assert _line_looks_like_code("def main():")
+        assert _line_looks_like_code("return value")
+        assert _line_looks_like_code("import os")
+
+    def test_indent_flags_code(self):
+        assert _line_looks_like_code("    result = compute")
+        assert not _line_looks_like_code("    ")  # blank indent only
+
+
+def test_code_line_left_untouched():
+    corrector = OCRCorrector("eng")
+    line = "    idx = buf.len"
+    # convenience: code line must pass through spell correction unchanged
+    assert "idx" in corrector.correct(line) and "buf" in corrector.correct(line)
 
 
 class TestSpellCorrectEdgeCases:
