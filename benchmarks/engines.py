@@ -6,8 +6,8 @@ from typing import Dict
 from PIL import Image
 
 from sniptext.config import Config
-from sniptext.ocr import TesseractBackend, EasyOCRBackend
 from sniptext.ensemble import EnsembleOCR, post_process_text
+from sniptext.ocr import EasyOCRBackend, TesseractBackend
 
 
 class EngineRunner:

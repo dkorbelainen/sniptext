@@ -3,7 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from benchmarks.metrics import cer, wer, levenshtein, aggregate_cer, normalize_text
+from benchmarks.metrics import aggregate_cer, cer, levenshtein, normalize_text, wer
 
 
 def test_normalize_collapses_whitespace_keeps_case():

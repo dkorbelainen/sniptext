@@ -19,13 +19,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PIL import Image
 
-from sniptext.analyzer import ImageAnalyzer
-from sniptext.config import Config
-
 from benchmarks.dataset import load_sroie
 from benchmarks.engines import EngineRunner
 from benchmarks.metrics import cer, normalize_text, wer
 from benchmarks.synthetic import generate
+from sniptext.analyzer import ImageAnalyzer
+from sniptext.config import Config
 
 _MARGIN = 0.0
 _RESULTS = Path(__file__).resolve().parent / "results.json"
