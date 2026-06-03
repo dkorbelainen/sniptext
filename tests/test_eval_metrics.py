@@ -3,7 +3,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from benchmarks.metrics import cer, wer, levenshtein, aggregate_cer
+from benchmarks.metrics import cer, wer, levenshtein, aggregate_cer, normalize_text
+
+
+def test_normalize_collapses_whitespace_keeps_case():
+    assert normalize_text("a  b\n  c\t d ") == "a b c d"
+    assert normalize_text("Hello   World") == "Hello World"
+
+
+def test_normalize_empty():
+    assert normalize_text("") == ""
+    assert normalize_text("   \n\t ") == ""
 
 
 def test_levenshtein_identical():

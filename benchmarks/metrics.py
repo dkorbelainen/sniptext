@@ -1,6 +1,19 @@
 """Character/word error-rate metrics via normalized Levenshtein distance."""
 
+import re
 from typing import Iterable, Sequence, Tuple
+
+_WS = re.compile(r"\s+")
+
+
+def normalize_text(text: str) -> str:
+    """Collapse whitespace runs to single spaces and strip; preserve case.
+
+    Standard OCR-eval normalization: line-wrapping and indentation differ
+    between engines without being recognition errors. Case is kept so that
+    genuine case mistakes still count.
+    """
+    return _WS.sub(" ", text).strip()
 
 
 def levenshtein(a: Sequence, b: Sequence) -> int:
