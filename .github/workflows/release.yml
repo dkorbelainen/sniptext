@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    name: Validate version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches pyproject version
+        id: v
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          proj="$(grep -m1 '^version' pyproject.toml | sed -E 's/.*"(.*)".*/\1/')"
+          echo "tag=$tag project=$proj"
+          if [ "$tag" != "$proj" ]; then
+            echo "::error::Tag v$tag does not match pyproject.toml version $proj"
+            exit 1
+          fi
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
+
+  github-release:
+    name: GitHub Release
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create release with auto-generated notes
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+
+  aur-publish:
+    name: Publish to AUR
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute source tarball sha256
+        id: sha
+        run: |
+          ver="${{ needs.validate.outputs.version }}"
+          url="https://github.com/${GITHUB_REPOSITORY}/archive/v${ver}.tar.gz"
+          curl -fsSL "$url" -o src.tar.gz
+          echo "sha256=$(sha256sum src.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Stage PKGBUILD with pkgver and sha256
+        run: |
+          ver="${{ needs.validate.outputs.version }}"
+          sha="${{ steps.sha.outputs.sha256 }}"
+          mkdir -p aur-build
+          cp packaging/PKGBUILD aur-build/PKGBUILD
+          cp packaging/sniptext.install aur-build/sniptext.install
+          sed -i -E "s/^pkgver=.*/pkgver=${ver}/" aur-build/PKGBUILD
+          sed -i -E "s/^sha256sums=.*/sha256sums=('${sha}')/" aur-build/PKGBUILD
+
+      - name: Publish to AUR
+        uses: KSXGitHub/github-actions-deploy-aur@v2.7.2
+        with:
+          pkgname: sniptext
+          pkgbuild: ./aur-build/PKGBUILD
+          assets: |
+            aur-build/sniptext.install
+          commit_username: ${{ secrets.AUR_USERNAME }}
+          commit_email: ${{ secrets.AUR_EMAIL }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: "Update to v${{ needs.validate.outputs.version }}"

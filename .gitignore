@@ -2,6 +2,10 @@
 .dev/
 *.tar.gz
 
+# Local agent/superpowers docs (private, not for repo)
+docs/superpowers/
+.claude/
+
 # AUR package repository (separate repo)
 aur-sniptext-aur/
 
