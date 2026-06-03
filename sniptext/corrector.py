@@ -72,6 +72,48 @@ _ARABIC_LANGS: frozenset[str] = frozenset(("ara", "ar", "fas", "fa", "urd", "ur"
 _DEVANAGARI_LANGS: frozenset[str] = frozenset(("hin", "hi", "san", "sa", "mar", "mr", "nep", "ne"))
 
 
+_CODE_SYMBOL = re.compile(r"[{}();=\[\]<>]|::|->|=>|_")
+_CODE_KEYWORD = re.compile(
+    r"\b(def|class|import|from|return|for|while|elif|else|function|const|let|var|"
+    r"public|private|static|void|int|float|bool|null|None|True|False|self|print)\b"
+)
+
+
+def _line_looks_like_code(line: str) -> bool:
+    """Return True if *line* resembles source code rather than prose.
+
+    SymSpell helps degraded natural-language text but damages code (valid
+    identifiers like ``idx``/``buf`` get "corrected" into dictionary words).
+    A line carrying code punctuation, a leading indent, or a language keyword
+    is left untouched.
+    """
+    if _CODE_SYMBOL.search(line):
+        return True
+    if (line.startswith("    ") or line.startswith("\t")) and line.strip():
+        return True
+    return bool(_CODE_KEYWORD.search(line))
+
+
+def _looks_non_lexical(word: str) -> bool:
+    """Return True if *word* is not a plain natural-language word.
+
+    SymSpell's dictionary only models ordinary words, so applying it to
+    identifiers, codes, paths, numbers or acronyms produces confident wrong
+    "corrections" (e.g. ``getValue`` → ``develop``). Such tokens must be left
+    untouched. *word* is expected to already have edge punctuation stripped.
+    """
+    if not word.isalpha():
+        # digits, underscores, dots, slashes, apostrophes → identifier/code/path
+        return True
+    if any(c.isupper() for c in word[1:]):
+        # internal capital → camelCase / mixedCase identifier
+        return True
+    if len(word) >= 2 and word.isupper():
+        # all-caps → acronym, constant, or receipt header
+        return True
+    return False
+
+
 def detect_dominant_language(text: str, candidates: list[str]) -> str:
     """
     Detect the dominant language of *text* from a list of candidate language codes.
@@ -297,6 +339,9 @@ class OCRCorrector:
 
     def _spell_correct_line(self, line: str, aggressive: bool, Verbosity) -> str:
         """Spell-correct a single line of text."""
+        if _line_looks_like_code(line):
+            return line
+
         words = line.split(" ")
         corrected_words = []
 
@@ -317,7 +362,7 @@ class OCRCorrector:
                 suffix = clean_word[-1] + suffix
                 clean_word = clean_word[:-1]
 
-            if not clean_word:
+            if not clean_word or _looks_non_lexical(clean_word):
                 corrected_words.append(word)
                 continue
 
