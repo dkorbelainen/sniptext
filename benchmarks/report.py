@@ -82,7 +82,7 @@ def main():
 
     # Per-difficulty (synthetic) table.
     diff_lines = ["| Difficulty | n | CER Tesseract | CER Ensemble |", "|---|---|---|---|"]
-    for diff in ("clean", "medium"):
+    for diff in ("clean", "medium", "heavy"):
         d = subset(source="synthetic", difficulty=diff)
         if d:
             diff_lines.append(

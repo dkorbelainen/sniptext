@@ -95,12 +95,22 @@ def _render(text: str, theme: str, font_size: int) -> Image.Image:
     return img
 
 
-def _degrade(img: Image.Image, rng: random.Random) -> Image.Image:
-    """Apply moderate noise + blur so engines make differing errors."""
-    img = img.filter(ImageFilter.GaussianBlur(radius=rng.uniform(0.6, 1.1)))
+# Degradation tiers: (blur radius range, gaussian noise std range).
+# "heavy" pushes the engines into disagreement, the regime where ensemble
+# merging wins — needed to produce enough positive selector labels.
+_DEGRADE = {
+    "medium": ((0.6, 1.1), (14, 24)),
+    "heavy": ((1.0, 1.4), (24, 34)),
+}
+
+
+def _degrade(img: Image.Image, rng: random.Random, level: str) -> Image.Image:
+    """Apply noise + blur at *level* so engines make differing errors."""
+    (blur_lo, blur_hi), (noise_lo, noise_hi) = _DEGRADE[level]
+    img = img.filter(ImageFilter.GaussianBlur(radius=rng.uniform(blur_lo, blur_hi)))
     arr = np.asarray(img).astype(np.float32)
     noise = np.random.default_rng(rng.randint(0, 2**31)).normal(
-        0, rng.uniform(14, 24), arr.shape
+        0, rng.uniform(noise_lo, noise_hi), arr.shape
     )
     arr = np.clip(arr + noise, 0, 255).astype(np.uint8)
     return Image.fromarray(arr)
@@ -114,13 +124,13 @@ def generate(out_dir: Path, n_per_combo: int = 6, seed: int = 42) -> List[Sample
     idx = 0
     for content, texts in _CONTENT.items():
         for theme in _THEMES:
-            for difficulty in ("clean", "medium"):
+            for difficulty in ("clean", "medium", "heavy"):
                 for _ in range(n_per_combo):
                     text = rng.choice(texts)
                     font_size = rng.choice([22, 26, 30])
                     img = _render(text, theme, font_size)
-                    if difficulty == "medium":
-                        img = _degrade(img, rng)
+                    if difficulty != "clean":
+                        img = _degrade(img, rng, difficulty)
                     path = out_dir / f"{content}_{theme}_{difficulty}_{idx:04d}.png"
                     img.save(path)
                     samples.append(
