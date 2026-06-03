@@ -25,9 +25,7 @@ class EngineRunner:
         tess_text = self.tess.recognize(image)
         easy_text = self.easy.recognize(image)
         ensemble_text = self.ensemble.combine_results([tess_text, easy_text])
-        corrected = post_process_text(
-            ensemble_text, language=self.language, enable_correction=True
-        )
+        corrected = post_process_text(ensemble_text, language=self.language, enable_correction=True)
         return {
             "tesseract": tess_text,
             "easyocr": easy_text,

@@ -12,8 +12,13 @@ from sklearn.utils.class_weight import compute_class_weight
 
 _RESULTS = Path(__file__).resolve().parent / "results.json"
 _FEATURE_NAMES = [
-    "brightness", "contrast", "sharpness", "has_color",
-    "size_ratio", "text_density", "noise_level",
+    "brightness",
+    "contrast",
+    "sharpness",
+    "has_color",
+    "size_ratio",
+    "text_density",
+    "noise_level",
 ]
 
 
@@ -34,9 +39,7 @@ def train_and_report() -> Dict:
             "Add more degraded/synthetic samples or adjust --margin."
         )
 
-    X_tr, X_val, y_tr, y_val = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
+    X_tr, X_val, y_tr, y_val = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     # Balance the fast/ensemble classes: ensemble wins are the minority, and an
     # unweighted model collapses to always predicting fast.
     classes = np.array([0, 1])
@@ -51,8 +54,11 @@ def train_and_report() -> Dict:
     y_pred = model.predict(X_val)
 
     report = classification_report(
-        y_val, y_pred, target_names=["fast", "ensemble"],
-        output_dict=True, zero_division=0,
+        y_val,
+        y_pred,
+        target_names=["fast", "ensemble"],
+        output_dict=True,
+        zero_division=0,
     )
     cm = confusion_matrix(y_val, y_pred).tolist()
 

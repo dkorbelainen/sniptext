@@ -61,9 +61,7 @@ def main():
         cer_fast_on_ens = _mean(ens_rows, "cer_tesseract")
         cer_ens_on_ens = _mean(ens_rows, "cer_ensemble")
         cond_gain_rel = (
-            (cer_fast_on_ens - cer_ens_on_ens) / cer_fast_on_ens * 100
-            if cer_fast_on_ens
-            else 0.0
+            (cer_fast_on_ens - cer_ens_on_ens) / cer_fast_on_ens * 100 if cer_fast_on_ens else 0.0
         )
     else:
         cer_fast_on_ens = cer_ens_on_ens = cond_gain_rel = float("nan")
@@ -139,10 +137,10 @@ selector routes to the fast path, so the ensemble cost is avoided.
 
 ## Strategy selector (GradientBoosting, trained on oracle labels)
 
-- Samples: {sel['n_samples']} (fast={sel['label_distribution']['fast']}, ensemble={sel['label_distribution']['ensemble']})
+- Samples: {sel["n_samples"]} (fast={sel["label_distribution"]["fast"]}, ensemble={sel["label_distribution"]["ensemble"]})
 - **Macro F1 (held-out 20%): {macro_f1:.3f}**
-- CV macro-F1: {sel['cv_f1_macro_mean']:.3f} ± {sel['cv_f1_macro_std']:.3f}
-- Confusion matrix [rows=true fast/ensemble, cols=pred]: {sel['confusion_matrix']}
+- CV macro-F1: {sel["cv_f1_macro_mean"]:.3f} ± {sel["cv_f1_macro_std"]:.3f}
+- Confusion matrix [rows=true fast/ensemble, cols=pred]: {sel["confusion_matrix"]}
 - Top features: {top_feats}
 
 ## Reproduce

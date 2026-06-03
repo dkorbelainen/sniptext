@@ -53,11 +53,7 @@ _FONT_FAMILIES = ["DejaVu Sans Mono", "Noto Sans Mono", "Liberation Mono"]
 
 @lru_cache(maxsize=8)
 def _font_path(family: str) -> str:
-    return (
-        subprocess.check_output(["fc-match", "-f", "%{file}", family])
-        .decode()
-        .strip()
-    )
+    return subprocess.check_output(["fc-match", "-f", "%{file}", family]).decode().strip()
 
 
 @dataclass
@@ -133,9 +129,7 @@ def generate(out_dir: Path, n_per_combo: int = 6, seed: int = 42) -> List[Sample
                         img = _degrade(img, rng, difficulty)
                     path = out_dir / f"{content}_{theme}_{difficulty}_{idx:04d}.png"
                     img.save(path)
-                    samples.append(
-                        Sample(path, text, "synthetic", theme, difficulty, content)
-                    )
+                    samples.append(Sample(path, text, "synthetic", theme, difficulty, content))
                     idx += 1
     return samples
 
