@@ -24,6 +24,14 @@ class OCRBackend(ABC):
         """Check if backend is available."""
         pass
 
+    def recognize_detailed(self, image: "Image.Image") -> tuple[str, list[list[float]] | None]:
+        """Recognize text plus per-line word confidences in [0,1].
+
+        Default: text from recognize(), no confidence. Subclasses that can
+        report confidence override this.
+        """
+        return self.recognize(image), None
+
 
 class TesseractBackend(OCRBackend):
     """Tesseract OCR backend (fast, lightweight)."""
@@ -68,6 +76,52 @@ class TesseractBackend(OCRBackend):
         text = self._tesseract.image_to_string(enhanced_image, lang=lang_code, config=custom_config)
 
         return text.strip()
+
+    def recognize_detailed(self, image: Image.Image) -> tuple[str, list[list[float]] | None]:
+        """Tesseract text + per-line word confidences via image_to_data."""
+        if not self.is_available():
+            raise RuntimeError("Tesseract not available")
+
+        from pytesseract import Output
+
+        enhanced_image = self._analyzer.enhance_for_ocr(image)
+        psm_mode = self._analyzer.suggest_psm_mode(enhanced_image)
+        lang_code = self._get_lang_code()
+        custom_config = f"--oem 1 --psm {psm_mode}"
+
+        try:
+            data = self._tesseract.image_to_data(
+                enhanced_image,
+                lang=lang_code,
+                config=custom_config,
+                output_type=Output.DICT,
+            )
+        except Exception as e:
+            logger.debug(f"image_to_data failed, falling back to plain text: {e}")
+            return self.recognize(image), None
+
+        from collections import OrderedDict
+
+        grouped: "OrderedDict[tuple, list[tuple[int, str, float]]]" = OrderedDict()
+        n = len(data["text"])
+        for k in range(n):
+            word = data["text"][k].strip()
+            conf = float(data["conf"][k])
+            if not word or conf < 0:
+                continue
+            key = (data["block_num"][k], data["par_num"][k], data["line_num"][k])
+            grouped.setdefault(key, []).append((data["word_num"][k], word, conf / 100.0))
+
+        lines: list[str] = []
+        confs: list[list[float]] = []
+        for words in grouped.values():
+            words.sort(key=lambda t: t[0])
+            lines.append(" ".join(w for _, w, _ in words))
+            confs.append([c for _, _, c in words])
+
+        if not lines:
+            return self.recognize(image), None
+        return "\n".join(lines), confs
 
     def _get_lang_code(self) -> str:
         """Get Tesseract language code."""
@@ -154,6 +208,29 @@ class EasyOCRBackend(OCRBackend):
                 logger.debug(f"Skipped low confidence: '{text}' ({confidence:.2f})")
 
         return "\n".join(lines)
+
+    def recognize_detailed(self, image: Image.Image) -> tuple[str, list[list[float]] | None]:
+        """EasyOCR text + per-line word confidences (detection conf broadcast
+        to each word; one line per detection)."""
+        if not self.is_available():
+            raise RuntimeError("EasyOCR not available")
+
+        self._lazy_init()
+        img_array = np.array(image)
+        results = self._reader.readtext(img_array, detail=1, paragraph=False)
+
+        lines: list[str] = []
+        confs: list[list[float]] = []
+        for _bbox, text, confidence in results:
+            if confidence < self.config.ocr_confidence_threshold:
+                continue
+            words = text.split()
+            if not words:
+                continue
+            lines.append(" ".join(words))
+            confs.append([float(confidence)] * len(words))
+
+        return "\n".join(lines), (confs or None)
 
     def _get_lang_codes(self) -> List[str]:
         """Get EasyOCR language codes."""
