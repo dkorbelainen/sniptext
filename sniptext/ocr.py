@@ -414,15 +414,17 @@ class OCREngine:
         """
         from .ensemble import EnsembleOCR
 
-        results = []
+        results: list[str] = []
+        confidences: list[list[list[float]] | None] = []
 
         for name, backend in self.backends.items():
             if backend.is_available():
                 try:
                     logger.debug(f"Running {name}...")
-                    text = backend.recognize(image)
+                    text, confs = backend.recognize_detailed(image)
                     if text:
                         results.append(text)
+                        confidences.append(confs)
                         logger.debug(f"{name}: {len(text)} chars")
                 except Exception as e:
                     logger.warning(f"{name} failed: {e}")
@@ -434,7 +436,7 @@ class OCREngine:
             return results[0]
 
         ensemble = EnsembleOCR()
-        combined = ensemble.combine_results(results)
+        combined = ensemble.combine_results(results, confidences)
 
         logger.info(f"Ensemble combined {len(results)} results")
 
