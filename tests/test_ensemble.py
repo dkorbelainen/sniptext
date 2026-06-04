@@ -170,3 +170,46 @@ class TestScoring:
         noisy = "T0tal am0unt ||| 1500"
         result = EnsembleOCR().combine_results([noisy, clean])
         assert "|||" not in result
+
+
+class TestConfidenceWeightedMerge:
+    def test_confidence_picks_lower_heuristic_segment(self):
+        """At a disagreement, the higher-confidence word wins even when the text
+        heuristic alone would not distinguish the two."""
+        ens = EnsembleOCR()
+        a = "the cat sat"
+        b = "the cot sat"
+        conf_a = [[0.9, 0.10, 0.9]]
+        conf_b = [[0.9, 0.99, 0.9]]
+        out = ens.combine_results([a, b], [conf_a, conf_b])
+        assert "cot" in out
+        assert "cat" not in out
+
+    def test_confidence_other_direction(self):
+        """Flip the confidences -> the other word wins, proving conf drives it."""
+        ens = EnsembleOCR()
+        a = "the cat sat"
+        b = "the cot sat"
+        conf_a = [[0.9, 0.99, 0.9]]
+        conf_b = [[0.9, 0.10, 0.9]]
+        out = ens.combine_results([a, b], [conf_a, conf_b])
+        assert "cat" in out
+        assert "cot" not in out
+
+    def test_none_confidence_matches_legacy(self):
+        """confidences=None must be byte-identical to the no-arg call."""
+        ens = EnsembleOCR()
+        a = "the quick brown fox"
+        b = "the quikc brown fox"
+        assert ens.combine_results([a, b], None) == ens.combine_results([a, b])
+
+    def test_mismatched_conf_length_falls_back(self):
+        """A conf list whose length disagrees with its word list is ignored
+        (heuristic fallback), and the merge must not crash."""
+        ens = EnsembleOCR()
+        a = "the cat sat"
+        b = "the cot sat"
+        conf_a = [[0.9, 0.10]]
+        conf_b = [[0.9, 0.99, 0.9]]
+        out = ens.combine_results([a, b], [conf_a, conf_b])
+        assert out

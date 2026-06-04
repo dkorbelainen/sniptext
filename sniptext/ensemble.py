@@ -54,7 +54,11 @@ class EnsembleOCR:
         """Initialize ensemble."""
         self.results = []
 
-    def combine_results(self, results: list[str]) -> str:
+    def combine_results(
+        self,
+        results: list[str],
+        confidences: list[list[list[float]]] | None = None,
+    ) -> str:
         """
         Combine multiple OCR results using intelligent merging.
 
@@ -62,35 +66,60 @@ class EnsembleOCR:
         segmented output from Tesseract and EasyOCR is handled correctly,
         then resolves word-level disagreements within misaligned blocks.
 
+        When ``confidences`` is given, ``confidences[k]`` holds per-line word
+        confidences (``list[list[float]]`` in ``[0,1]``) aligned to
+        ``results[k].splitlines()``; word-level disagreements are then resolved
+        by mean segment confidence, falling back to the text heuristic when
+        confidence is missing. ``confidences=None`` reproduces the legacy
+        behaviour exactly. Only the first merged pair is confidence-aware.
+
         Args:
-            results: List of OCR results from different engines
+            results: OCR results from different engines.
+            confidences: Optional per-result, per-line word confidences.
 
         Returns:
-            Combined text with best accuracy
+            Combined text with best accuracy.
         """
         if not results:
             return ""
 
-        results = [r for r in results if r.strip()]
+        if confidences is None:
+            confidences = [None] * len(results)
 
-        if not results:
+        pairs = [(r, c) for r, c in zip(results, confidences) if r.strip()]
+        if not pairs:
             return ""
+        if len(pairs) == 1:
+            return pairs[0][0]
 
-        if len(results) == 1:
-            return results[0]
+        logger.info(f"Combining {len(pairs)} OCR results")
 
-        logger.info(f"Combining {len(results)} OCR results")
+        pairs.sort(key=lambda p: self._doc_score(p[0], p[1]), reverse=True)
 
-        # Sort by quality descending so the best result is always the base,
-        # making the output independent of the caller's backend ordering.
-        results = sorted(results, key=self._score_text, reverse=True)
-
-        merged = results[0]
-        for other in results[1:]:
-            merged = self._merge_two(merged, other)
+        merged, merged_conf = pairs[0]
+        for i, (other, other_conf) in enumerate(pairs[1:]):
+            # The merged text has no aligned confidence, so only the first pair
+            # is confidence-aware; later pairs fall back to the text heuristic.
+            conf_b = other_conf if i == 0 else None
+            merged = self._merge_two(merged, other, merged_conf, conf_b)
+            merged_conf = None
         return merged
 
-    def _merge_two(self, a: str, b: str) -> str:
+    def _doc_score(self, text: str, conf_lines: list[list[float]] | None) -> float:
+        """Whole-document sort key: mean confidence if available, else heuristic."""
+        if conf_lines:
+            flat = [c for line in conf_lines for c in line]
+            if flat:
+                return float(np.mean(flat))
+        return self._score_text(text)
+
+    def _merge_two(
+        self,
+        a: str,
+        b: str,
+        conf_a: list[list[float]] | None = None,
+        conf_b: list[list[float]] | None = None,
+    ) -> str:
         """Merge two OCR results using line-level then word-level alignment."""
         lines_a = a.splitlines()
         lines_b = b.splitlines()
@@ -102,7 +131,9 @@ class EnsembleOCR:
             if tag == "equal":
                 out.extend(lines_a[i1:i2])
             elif tag == "replace":
-                out.extend(self._merge_word_level(lines_a[i1:i2], lines_b[j1:j2]))
+                ca = conf_a[i1:i2] if conf_a is not None else None
+                cb = conf_b[j1:j2] if conf_b is not None else None
+                out.extend(self._merge_word_level(lines_a[i1:i2], lines_b[j1:j2], ca, cb))
             elif tag == "delete":
                 out.extend(lines_a[i1:i2])
             elif tag == "insert":
@@ -110,14 +141,20 @@ class EnsembleOCR:
 
         return "\n".join(out)
 
-    def _merge_word_level(self, lines_a: list[str], lines_b: list[str]) -> list[str]:
+    def _merge_word_level(
+        self,
+        lines_a: list[str],
+        lines_b: list[str],
+        conf_a: list[list[float]] | None = None,
+        conf_b: list[list[float]] | None = None,
+    ) -> list[str]:
         """
         Resolve disagreements between two line blocks at word level.
 
-        Joins each block into a word sequence, aligns with SequenceMatcher,
-        and picks the better word segment for each differing region.
-        The result is reflowed back into lines using the longer block's
-        word-count proportions.
+        Joins each block into a word sequence, aligns with SequenceMatcher, and
+        picks the better word segment for each differing region — by mean
+        confidence when both segments have it, otherwise by text heuristic.
+        The result is reflowed using the longer block's word-count proportions.
         """
         words_a = " ".join(lines_a).split()
         words_b = " ".join(lines_b).split()
@@ -127,6 +164,9 @@ class EnsembleOCR:
         if not words_b:
             return lines_a
 
+        flat_a = self._flatten_conf(conf_a, len(words_a))
+        flat_b = self._flatten_conf(conf_b, len(words_b))
+
         matcher = SequenceMatcher(None, words_a, words_b, autojunk=False)
         merged: list[str] = []
 
@@ -135,8 +175,9 @@ class EnsembleOCR:
                 merged.extend(words_a[i1:i2])
             elif tag == "replace":
                 seg_a, seg_b = words_a[i1:i2], words_b[j1:j2]
-                chosen = seg_a if self._score_words(seg_a) >= self._score_words(seg_b) else seg_b
-                merged.extend(chosen)
+                ca = flat_a[i1:i2] if flat_a is not None else None
+                cb = flat_b[j1:j2] if flat_b is not None else None
+                merged.extend(self._choose_segment(seg_a, seg_b, ca, cb))
             elif tag == "delete":
                 merged.extend(words_a[i1:i2])
             elif tag == "insert":
@@ -144,6 +185,38 @@ class EnsembleOCR:
 
         ref = lines_a if len(lines_a) >= len(lines_b) else lines_b
         return _reflow(merged, ref)
+
+    @staticmethod
+    def _flatten_conf(conf_lines: list[list[float]] | None, n_words: int) -> list[float] | None:
+        """Flatten per-line confidences to a per-word list; None if absent or
+        length-mismatched (graceful heuristic fallback)."""
+        if conf_lines is None:
+            return None
+        flat = [c for line in conf_lines for c in line]
+        return flat if len(flat) == n_words else None
+
+    def _choose_segment(
+        self,
+        seg_a: list[str],
+        seg_b: list[str],
+        conf_a: list[float] | None,
+        conf_b: list[float] | None,
+    ) -> list[str]:
+        """Pick the winning word segment: by mean confidence when both have it
+        (text heuristic breaks ties within epsilon), else by text heuristic."""
+        ca = self._mean_conf(conf_a)
+        cb = self._mean_conf(conf_b)
+        if ca is not None and cb is not None:
+            if abs(ca - cb) < 0.05:
+                return seg_a if self._score_words(seg_a) >= self._score_words(seg_b) else seg_b
+            return seg_a if ca >= cb else seg_b
+        return seg_a if self._score_words(seg_a) >= self._score_words(seg_b) else seg_b
+
+    @staticmethod
+    def _mean_conf(conf: list[float] | None) -> float | None:
+        if not conf:
+            return None
+        return float(np.mean(conf))
 
     def _score_words(self, words: list[str]) -> float:
         """Score a word sequence: prefer high alphanumeric ratio, penalise noise tokens."""
