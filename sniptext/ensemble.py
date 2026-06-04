@@ -1,5 +1,7 @@
 """Ensemble OCR - combines multiple engines for better accuracy."""
 
+from __future__ import annotations
+
 from difflib import SequenceMatcher
 
 import numpy as np
