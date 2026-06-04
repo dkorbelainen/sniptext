@@ -57,7 +57,7 @@ class EnsembleOCR:
     def combine_results(
         self,
         results: list[str],
-        confidences: list[list[list[float]]] | None = None,
+        confidences: list[list[list[float]] | None] | None = None,
     ) -> str:
         """
         Combine multiple OCR results using intelligent merging.
