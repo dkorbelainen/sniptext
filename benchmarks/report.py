@@ -40,7 +40,8 @@ def _variant_table(rows) -> str:
         "| Variant | CER | WER |\n|---|---|---|\n"
         f"| Tesseract only | {_mean(rows, 'cer_tesseract'):.3f} | {_mean(rows, 'wer_tesseract'):.3f} |\n"
         f"| EasyOCR only | {_mean(rows, 'cer_easyocr'):.3f} | {_mean(rows, 'wer_easyocr'):.3f} |\n"
-        f"| Ensemble merge | {_mean(rows, 'cer_ensemble'):.3f} | {_mean(rows, 'wer_ensemble'):.3f} |\n"
+        f"| Ensemble merge (heuristic) | {_mean(rows, 'cer_ensemble'):.3f} | {_mean(rows, 'wer_ensemble'):.3f} |\n"
+        f"| Ensemble merge (conf-weighted) | {_mean(rows, 'cer_ensemble_conf'):.3f} | — |\n"
         f"| Ensemble + SymSpell | {_mean(rows, 'cer_ensemble_corrected'):.3f} | — |\n"
     )
 
@@ -65,6 +66,32 @@ def main():
         )
     else:
         cer_fast_on_ens = cer_ens_on_ens = cond_gain_rel = float("nan")
+
+    # Confidence-weighted merge gain, isolated against the text-heuristic merge
+    # over identical engine outputs. Diluted across the full corpus (most images
+    # have no resolvable disagreement), so we also report the changed-only slice.
+    changed = [r for r in rows if r.get("conf_changed_output")]
+    conf_overall_abs = _mean(rows, "cer_ensemble") - _mean(rows, "cer_ensemble_conf")
+    if changed:
+        cer_heur_changed = _mean(changed, "cer_ensemble")
+        cer_conf_changed = _mean(changed, "cer_ensemble_conf")
+        conf_changed_abs = cer_heur_changed - cer_conf_changed
+        conf_changed_rel = conf_changed_abs / cer_heur_changed * 100 if cer_heur_changed else 0.0
+    else:
+        cer_heur_changed = cer_conf_changed = conf_changed_abs = conf_changed_rel = float("nan")
+
+    # Per-source split: confidence helps on domain-matched screen text but not
+    # on photographed receipts, where engine confidence is poorly calibrated.
+    conf_src_lines = [
+        "| Source | changed | CER heuristic | CER conf | rel |",
+        "|---|---|---|---|---|",
+    ]
+    for src in ("synthetic", "sroie"):
+        sc = [r for r in changed if r["source"] == src]
+        if sc:
+            h, c = _mean(sc, "cer_ensemble"), _mean(sc, "cer_ensemble_conf")
+            rel = (h - c) / h * 100 if h else 0.0
+            conf_src_lines.append(f"| {src} | {len(sc)} | {h:.3f} | {c:.3f} | {rel:+.1f}% |")
 
     # SymSpell gain on prose (real-word text where a dictionary helps).
     prose = subset(content="prose")
@@ -129,6 +156,24 @@ On the {len(ens_rows)} images where the ensemble beats the fast path, it
 reduces CER from {cer_fast_on_ens:.3f} to {cer_ens_on_ens:.3f}
 (**{cond_gain_rel:.1f}% relative reduction**). On easy/clean inputs the
 selector routes to the fast path, so the ensemble cost is avoided.
+
+## Confidence-weighted merge
+
+Both merges run on identical engine outputs; the only difference is how
+word-level disagreements are resolved (engine confidence vs text heuristic).
+
+- Output changed on {len(changed)}/{n} images (where engines disagreed and both
+  sides carried confidence).
+- On those images: CER {cer_heur_changed:.3f} → {cer_conf_changed:.3f}
+  (**{conf_changed_rel:.1f}% relative reduction**, {conf_changed_abs:+.3f} absolute).
+- Corpus-wide: {conf_overall_abs:+.3f} absolute CER change.
+
+{chr(10).join(conf_src_lines)}
+
+The aggregate is dominated by SROIE receipts, where engine confidence is poorly
+calibrated and the merge is near-neutral. On domain-matched screen text the
+confidence signal is reliable and the reduction is large, concentrated on
+degraded inputs where the two engines genuinely disagree.
 
 ## SymSpell correction
 
