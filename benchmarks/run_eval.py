@@ -83,8 +83,11 @@ def main():
         cer_tess = cer(normalize_text(texts["tesseract"]), gt_n)
         cer_easy = cer(normalize_text(texts["easyocr"]), gt_n)
         cer_ens = cer(normalize_text(texts["ensemble"]), gt_n)
-        cer_ens_conf = cer(normalize_text(texts["ensemble_conf"]), gt_n)
         cer_ens_corr = cer(normalize_text(texts["ensemble_corrected"]), gt_n)
+        det_heur_n = normalize_text(texts["ensemble_det_heur"])
+        det_conf_n = normalize_text(texts["ensemble_det_conf"])
+        cer_det_heur = cer(det_heur_n, gt_n)
+        cer_det_conf = cer(det_conf_n, gt_n)
 
         oracle = "ensemble" if (cer_tess - cer_ens) > args.margin else "fast"
 
@@ -99,10 +102,10 @@ def main():
                 "cer_tesseract": cer_tess,
                 "cer_easyocr": cer_easy,
                 "cer_ensemble": cer_ens,
-                "cer_ensemble_conf": cer_ens_conf,
                 "cer_ensemble_corrected": cer_ens_corr,
-                "conf_changed_output": normalize_text(texts["ensemble"])
-                != normalize_text(texts["ensemble_conf"]),
+                "cer_ens_det_heur": cer_det_heur,
+                "cer_ens_det_conf": cer_det_conf,
+                "conf_changed_output": det_heur_n != det_conf_n,
                 "wer_tesseract": wer(normalize_text(texts["tesseract"]), gt_n),
                 "wer_easyocr": wer(normalize_text(texts["easyocr"]), gt_n),
                 "wer_ensemble": wer(normalize_text(texts["ensemble"]), gt_n),

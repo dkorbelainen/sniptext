@@ -40,8 +40,7 @@ def _variant_table(rows) -> str:
         "| Variant | CER | WER |\n|---|---|---|\n"
         f"| Tesseract only | {_mean(rows, 'cer_tesseract'):.3f} | {_mean(rows, 'wer_tesseract'):.3f} |\n"
         f"| EasyOCR only | {_mean(rows, 'cer_easyocr'):.3f} | {_mean(rows, 'wer_easyocr'):.3f} |\n"
-        f"| Ensemble merge (heuristic) | {_mean(rows, 'cer_ensemble'):.3f} | {_mean(rows, 'wer_ensemble'):.3f} |\n"
-        f"| Ensemble merge (conf-weighted) | {_mean(rows, 'cer_ensemble_conf'):.3f} | — |\n"
+        f"| Ensemble merge | {_mean(rows, 'cer_ensemble'):.3f} | {_mean(rows, 'wer_ensemble'):.3f} |\n"
         f"| Ensemble + SymSpell | {_mean(rows, 'cer_ensemble_corrected'):.3f} | — |\n"
     )
 
@@ -71,10 +70,10 @@ def main():
     # over identical engine outputs. Diluted across the full corpus (most images
     # have no resolvable disagreement), so we also report the changed-only slice.
     changed = [r for r in rows if r.get("conf_changed_output")]
-    conf_overall_abs = _mean(rows, "cer_ensemble") - _mean(rows, "cer_ensemble_conf")
+    conf_overall_abs = _mean(rows, "cer_ens_det_heur") - _mean(rows, "cer_ens_det_conf")
     if changed:
-        cer_heur_changed = _mean(changed, "cer_ensemble")
-        cer_conf_changed = _mean(changed, "cer_ensemble_conf")
+        cer_heur_changed = _mean(changed, "cer_ens_det_heur")
+        cer_conf_changed = _mean(changed, "cer_ens_det_conf")
         conf_changed_abs = cer_heur_changed - cer_conf_changed
         conf_changed_rel = conf_changed_abs / cer_heur_changed * 100 if cer_heur_changed else 0.0
     else:
@@ -89,7 +88,7 @@ def main():
     for src in ("synthetic", "sroie"):
         sc = [r for r in changed if r["source"] == src]
         if sc:
-            h, c = _mean(sc, "cer_ensemble"), _mean(sc, "cer_ensemble_conf")
+            h, c = _mean(sc, "cer_ens_det_heur"), _mean(sc, "cer_ens_det_conf")
             rel = (h - c) / h * 100 if h else 0.0
             conf_src_lines.append(f"| {src} | {len(sc)} | {h:.3f} | {c:.3f} | {rel:+.1f}% |")
 
@@ -104,6 +103,22 @@ def main():
     sel = train_and_report()
     macro_f1 = sel["classification_report"]["macro avg"]["f1-score"]
     top_feats = sorted(sel["feature_importance"].items(), key=lambda x: -x[1])[:3]
+
+    # Selector vs label-only baselines, all cross-validated on the same folds.
+    base = sel["baselines"]
+    cv_mean = sel["cv_f1_macro_mean"]
+    best_base_name, best_base_f1 = max(base.items(), key=lambda kv: kv[1])
+    base_lines = ["| Policy | CV Macro F1 |", "|---|---|"]
+    for name in ("always_fast", "always_ensemble", "majority", "stratified_random"):
+        base_lines.append(f"| {name.replace('_', ' ')} | {base[name]:.3f} |")
+    base_lines.append(f"| **selector (GB)** | **{cv_mean:.3f}** |")
+
+    # Leave-one-feature-out ablation: CV macro-F1 drop when each feature is
+    # removed (positive = the feature adds signal the rest can't recover).
+    abl = sel["feature_ablation"]
+    abl_lines = ["| Feature dropped | CV Macro F1 | Δ vs full |", "|---|---|---|"]
+    for name, delta in sorted(abl.items(), key=lambda kv: -kv[1]):
+        abl_lines.append(f"| {name} | {cv_mean - delta:.3f} | {delta:+.3f} |")
 
     # Per-difficulty (synthetic) table.
     diff_lines = ["| Difficulty | n | CER Tesseract | CER Ensemble |", "|---|---|---|---|"]
@@ -187,6 +202,23 @@ degraded inputs where the two engines genuinely disagree.
 - CV macro-F1: {sel["cv_f1_macro_mean"]:.3f} ± {sel["cv_f1_macro_std"]:.3f}
 - Confusion matrix [rows=true fast/ensemble, cols=pred]: {sel["confusion_matrix"]}
 - Top features: {top_feats}
+
+### Vs label-only baselines (cross-validated, same folds)
+
+{chr(10).join(base_lines)}
+
+The learned router beats the best static policy ({best_base_name.replace("_", " ")},
+CV macro F1 {best_base_f1:.3f}) — routing on image features adds real signal over
+always picking one mode or the class prior.
+
+### Feature ablation (leave-one-out, same folds)
+
+{chr(10).join(abl_lines)}
+
+Δ is the CV macro-F1 lost when the feature is removed. Positive = the feature
+carries routing signal the rest can't recover; near-zero or negative = redundant
+given the others. This is a stronger test than impurity importance, which can
+rank a feature highly without it adding predictive value.
 
 ## Reproduce
 
