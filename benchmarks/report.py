@@ -113,6 +113,13 @@ def main():
         base_lines.append(f"| {name.replace('_', ' ')} | {base[name]:.3f} |")
     base_lines.append(f"| **selector (GB)** | **{cv_mean:.3f}** |")
 
+    # Leave-one-feature-out ablation: CV macro-F1 drop when each feature is
+    # removed (positive = the feature adds signal the rest can't recover).
+    abl = sel["feature_ablation"]
+    abl_lines = ["| Feature dropped | CV Macro F1 | Δ vs full |", "|---|---|---|"]
+    for name, delta in sorted(abl.items(), key=lambda kv: -kv[1]):
+        abl_lines.append(f"| {name} | {cv_mean - delta:.3f} | {delta:+.3f} |")
+
     # Per-difficulty (synthetic) table.
     diff_lines = ["| Difficulty | n | CER Tesseract | CER Ensemble |", "|---|---|---|---|"]
     for diff in ("clean", "medium", "heavy"):
@@ -203,6 +210,15 @@ degraded inputs where the two engines genuinely disagree.
 The learned router beats the best static policy ({best_base_name.replace("_", " ")},
 CV macro F1 {best_base_f1:.3f}) — routing on image features adds real signal over
 always picking one mode or the class prior.
+
+### Feature ablation (leave-one-out, same folds)
+
+{chr(10).join(abl_lines)}
+
+Δ is the CV macro-F1 lost when the feature is removed. Positive = the feature
+carries routing signal the rest can't recover; near-zero or negative = redundant
+given the others. This is a stronger test than impurity importance, which can
+rank a feature highly without it adding predictive value.
 
 ## Reproduce
 

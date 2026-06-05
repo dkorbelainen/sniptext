@@ -1,7 +1,7 @@
 # OCR Pipeline Benchmark
 
-Generated: 2026-06-05T09:38:24.402765+00:00
-Commit: `2cc1da4` | Images: 296 (synthetic=216, sroie=80)
+Generated: 2026-06-05T11:34:13.879977+00:00
+Commit: `d06ce32` | Images: 296 (synthetic=216, sroie=80)
 Metric: mean per-sample CER/WER, whitespace-normalized (case preserved). Lower is better.
 
 ## Overall accuracy
@@ -103,6 +103,23 @@ degraded inputs where the two engines genuinely disagree.
 The learned router beats the best static policy (stratified random,
 CV macro F1 0.516) — routing on image features adds real signal over
 always picking one mode or the class prior.
+
+### Feature ablation (leave-one-out, same folds)
+
+| Feature dropped | CV Macro F1 | Δ vs full |
+|---|---|---|
+| sharpness | 0.631 | +0.078 |
+| noise_level | 0.641 | +0.068 |
+| text_density | 0.695 | +0.014 |
+| brightness | 0.707 | +0.002 |
+| has_color | 0.709 | +0.000 |
+| contrast | 0.738 | -0.029 |
+| size_ratio | 0.742 | -0.033 |
+
+Δ is the CV macro-F1 lost when the feature is removed. Positive = the feature
+carries routing signal the rest can't recover; near-zero or negative = redundant
+given the others. This is a stronger test than impurity importance, which can
+rank a feature highly without it adding predictive value.
 
 ## Reproduce
 

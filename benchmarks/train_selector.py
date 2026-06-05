@@ -55,6 +55,27 @@ def _baselines(y: np.ndarray, splitter) -> Dict[str, float]:
     return {k: float(np.mean(v)) for k, v in acc.items()}
 
 
+def _ablation(X: np.ndarray, y: np.ndarray, splitter, full_cv_mean: float) -> Dict[str, float]:
+    """Leave-one-feature-out CV macro-F1 delta on the selector's own folds.
+
+    Drops each feature column, retrains, and reports full_cv_mean minus the
+    ablated mean. Positive delta = the feature carries routing signal the rest
+    can't recover (dropping it hurts); near-zero or negative = redundant. This
+    is a stronger statement than impurity importance, which can inflate a
+    feature without it adding predictive value the others lack.
+    """
+    if splitter is None:
+        return {}
+    out: Dict[str, float] = {}
+    for i, name in enumerate(_FEATURE_NAMES):
+        model = GradientBoostingClassifier(
+            n_estimators=50, max_depth=3, learning_rate=0.1, random_state=42
+        )
+        cv = cross_val_score(model, np.delete(X, i, axis=1), y, cv=splitter, scoring="f1_macro")
+        out[name] = full_cv_mean - float(cv.mean())
+    return out
+
+
 def train_and_report() -> Dict:
     all_rows = json.loads(_RESULTS.read_text())
     # The selector runs on SnipText's real traffic: screen captures, modelled
@@ -105,9 +126,12 @@ def train_and_report() -> Dict:
     cv = cross_val_score(model, X, y, cv=splitter, scoring="f1_macro") if splitter else None
 
     importances = dict(zip(_FEATURE_NAMES, model.feature_importances_.tolist()))
+    cv_mean = float(cv.mean()) if cv is not None else None
+    ablation = _ablation(X, y, splitter, cv_mean) if cv_mean is not None else {}
 
     out = {
         "baselines": _baselines(y, splitter),
+        "feature_ablation": ablation,
         "n_samples": len(rows),
         "label_distribution": {"fast": int((y == 0).sum()), "ensemble": int((y == 1).sum())},
         "classification_report": report,
