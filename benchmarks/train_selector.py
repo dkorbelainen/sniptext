@@ -6,8 +6,8 @@ from typing import Dict
 
 import numpy as np
 from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.metrics import classification_report, confusion_matrix
-from sklearn.model_selection import cross_val_score, train_test_split
+from sklearn.metrics import classification_report, confusion_matrix, f1_score
+from sklearn.model_selection import StratifiedKFold, cross_val_score, train_test_split
 from sklearn.utils.class_weight import compute_class_weight
 
 _RESULTS = Path(__file__).resolve().parent / "results.json"
@@ -20,6 +20,39 @@ _FEATURE_NAMES = [
     "text_density",
     "noise_level",
 ]
+
+
+def _baselines(y: np.ndarray, splitter) -> Dict[str, float]:
+    """Cross-validated macro-F1 of label-only policies, on the same folds as
+    the selector's CV score.
+
+    A single 20% split is too small here to compare against (val ~20 samples),
+    so baselines are averaged over the CV folds to match cv_f1_macro_mean. A
+    learned router only earns its keep if it beats the best static policy
+    (always-fast / always-ensemble / majority) and chance.
+    """
+    if splitter is None:
+        return {}
+    rng = np.random.default_rng(42)
+    acc: Dict[str, list] = {
+        k: [] for k in ("always_fast", "always_ensemble", "majority", "stratified_random")
+    }
+
+    def mf1(yv: np.ndarray, pred: np.ndarray) -> float:
+        return float(f1_score(yv, pred, average="macro", zero_division=0))
+
+    for tr_idx, val_idx in splitter.split(y, y):
+        y_tr, y_val = y[tr_idx], y[val_idx]
+        n = len(y_val)
+        majority = int(np.bincount(y_tr).argmax())
+        p_ens = float((y_tr == 1).mean())
+        random_pred = (rng.random(n) < p_ens).astype(int)
+        acc["always_fast"].append(mf1(y_val, np.zeros(n, dtype=int)))
+        acc["always_ensemble"].append(mf1(y_val, np.ones(n, dtype=int)))
+        acc["majority"].append(mf1(y_val, np.full(n, majority, dtype=int)))
+        acc["stratified_random"].append(mf1(y_val, random_pred))
+
+    return {k: float(np.mean(v)) for k, v in acc.items()}
 
 
 def train_and_report() -> Dict:
@@ -63,11 +96,18 @@ def train_and_report() -> Dict:
     cm = confusion_matrix(y_val, y_pred).tolist()
 
     n_folds = min(5, int(np.bincount(y).min()))
-    cv = cross_val_score(model, X, y, cv=n_folds, scoring="f1_macro") if n_folds >= 2 else None
+    # Shuffled folds: the synthetic corpus is generated combo-by-combo, so
+    # unshuffled folds would group same-theme/difficulty samples and bias CV.
+    # The same splitter feeds the baselines for an apples-to-apples comparison.
+    splitter = (
+        StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=42) if n_folds >= 2 else None
+    )
+    cv = cross_val_score(model, X, y, cv=splitter, scoring="f1_macro") if splitter else None
 
     importances = dict(zip(_FEATURE_NAMES, model.feature_importances_.tolist()))
 
     out = {
+        "baselines": _baselines(y, splitter),
         "n_samples": len(rows),
         "label_distribution": {"fast": int((y == 0).sum()), "ensemble": int((y == 1).sum())},
         "classification_report": report,
