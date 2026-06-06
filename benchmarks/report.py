@@ -10,6 +10,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from benchmarks.calib_merge import evaluate as calib_merge_eval
 from benchmarks.calibration import calibrate
 from benchmarks.train_selector import train_and_report
 
@@ -137,6 +138,22 @@ def main():
                 f"{gap:+.3f} | {c['ece_raw']:.3f} | {c['ece_cal']:.3f} |"
             )
 
+    # Close the loop: replay the confidence merge on held-out images with no /
+    # raw / calibrated confidence, to see whether calibration lets it transfer.
+    cm = calib_merge_eval()
+    cm_lines = [
+        "| Domain | test img | CER heuristic | CER raw conf | CER calibrated | calib − raw |",
+        "|---|---|---|---|---|---|",
+    ]
+    for src in ("synthetic", "sroie", "all"):
+        c = cm.get(src)
+        if c:
+            delta = c["cer_calibrated"] - c["cer_rawconf"]
+            cm_lines.append(
+                f"| {src} | {c['n_test']} | {c['cer_heuristic']:.3f} | {c['cer_rawconf']:.3f} | "
+                f"{c['cer_calibrated']:.3f} | {delta:+.3f} |"
+            )
+
     # Per-difficulty (synthetic) table.
     diff_lines = ["| Difficulty | n | CER Tesseract | CER Ensemble |", "|---|---|---|---|"]
     for diff in ("clean", "medium", "heavy"):
@@ -222,6 +239,26 @@ out-of-domain receipts the engines are over-confident (positive gap, high raw
 ECE), so confidence-weighted disagreement handling trusts the wrong side. A
 per-domain isotonic refit collapses the ECE, which is the prerequisite for the
 confidence merge to transfer beyond screen text.
+
+### Calibrated merge (held-out images)
+
+Replaying the confidence-weighted merge on a held-out image split with three
+confidence sources — text heuristic, raw engine confidence, and a per-engine
+isotonic calibration fit on the train split. The calibrator is wrapped around
+the same word confidences the merge already consumes; no OCR is re-run. The
+calibrator is fit per engine on purpose: the merge picks between engines by
+comparing their confidences, so it is invariant to a shared monotone rescaling
+and only an engine-specific map can re-rank one engine against the other.
+
+{chr(10).join(cm_lines)}
+
+"calib − raw" is the CER change from feeding calibrated instead of raw
+confidence into the merge. Raw confidence is a large win on domain-matched
+screen text but a regression on out-of-domain receipts; calibration keeps the
+screen-text win essentially intact while recovering about half of the receipt
+regression, giving the best aggregate CER of the three sources. It does not by
+itself beat the pure text heuristic on receipts — engine confidence there is too
+degraded — but it removes most of the penalty for using one global merge policy.
 
 ## SymSpell correction
 

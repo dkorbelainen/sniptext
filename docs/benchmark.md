@@ -1,7 +1,7 @@
 # OCR Pipeline Benchmark
 
-Generated: 2026-06-06T08:33:04.470880+00:00
-Commit: `9034216` | Images: 296 (synthetic=216, sroie=80)
+Generated: 2026-06-06T11:53:19.356447+00:00
+Commit: `e991a16` | Images: 296 (synthetic=216, sroie=80)
 Metric: mean per-sample CER/WER, whitespace-normalized (case preserved). Lower is better.
 
 ## Overall accuracy
@@ -96,6 +96,30 @@ out-of-domain receipts the engines are over-confident (positive gap, high raw
 ECE), so confidence-weighted disagreement handling trusts the wrong side. A
 per-domain isotonic refit collapses the ECE, which is the prerequisite for the
 confidence merge to transfer beyond screen text.
+
+### Calibrated merge (held-out images)
+
+Replaying the confidence-weighted merge on a held-out image split with three
+confidence sources — text heuristic, raw engine confidence, and a per-engine
+isotonic calibration fit on the train split. The calibrator is wrapped around
+the same word confidences the merge already consumes; no OCR is re-run. The
+calibrator is fit per engine on purpose: the merge picks between engines by
+comparing their confidences, so it is invariant to a shared monotone rescaling
+and only an engine-specific map can re-rank one engine against the other.
+
+| Domain | test img | CER heuristic | CER raw conf | CER calibrated | calib − raw |
+|---|---|---|---|---|---|
+| synthetic | 65 | 0.255 | 0.178 | 0.180 | +0.002 |
+| sroie | 24 | 0.449 | 0.515 | 0.480 | -0.035 |
+| all | 89 | 0.307 | 0.269 | 0.261 | -0.008 |
+
+"calib − raw" is the CER change from feeding calibrated instead of raw
+confidence into the merge. Raw confidence is a large win on domain-matched
+screen text but a regression on out-of-domain receipts; calibration keeps the
+screen-text win essentially intact while recovering about half of the receipt
+regression, giving the best aggregate CER of the three sources. It does not by
+itself beat the pure text heuristic on receipts — engine confidence there is too
+degraded — but it removes most of the penalty for using one global merge policy.
 
 ## SymSpell correction
 

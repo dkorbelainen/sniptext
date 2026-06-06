@@ -30,6 +30,7 @@ from sniptext.config import Config
 _MARGIN = 0.0
 _RESULTS = Path(__file__).resolve().parent / "results.json"
 _WORD_CONF = Path(__file__).resolve().parent / "word_conf.json"
+_MERGE_INPUTS = Path(__file__).resolve().parent / "merge_inputs.json"
 _SYNTH_DIR = Path(__file__).resolve().parent / "data" / "synthetic"
 
 
@@ -88,6 +89,7 @@ def main():
 
     rows = []
     word_conf = []
+    merge_inputs = []
     samples = list(_collect_samples(args.source, args.limit, args.n_per_combo, args.seed))
     for i, sample in enumerate(samples):
         img_path, gt = sample["path"], sample["gt"]
@@ -100,6 +102,16 @@ def main():
 
         gt_n = normalize_text(gt)
         gt_words = gt_n.split()
+        merge_inputs.append(
+            {
+                "source": sample["source"],
+                "gt": gt,
+                "tess_text": result.detailed["tesseract"][0],
+                "tess_conf": result.detailed["tesseract"][1],
+                "easy_text": result.detailed["easyocr"][0],
+                "easy_conf": result.detailed["easyocr"][1],
+            }
+        )
         for engine, pairs in result.word_conf.items():
             rec_words = [w for w, _ in pairs]
             labels = _label_correct(rec_words, gt_words)
@@ -150,8 +162,10 @@ def main():
 
     _RESULTS.write_text(json.dumps(rows, indent=2))
     _WORD_CONF.write_text(json.dumps(word_conf))
+    _MERGE_INPUTS.write_text(json.dumps(merge_inputs))
     print(f"Wrote {len(rows)} rows to {_RESULTS}")
     print(f"Wrote {len(word_conf)} word-confidence pairs to {_WORD_CONF}")
+    print(f"Wrote {len(merge_inputs)} merge inputs to {_MERGE_INPUTS}")
 
 
 if __name__ == "__main__":

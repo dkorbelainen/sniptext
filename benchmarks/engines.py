@@ -19,6 +19,10 @@ class RunResult:
 
     texts: Dict[str, str]
     word_conf: Dict[str, List[Tuple[str, float]]]
+    # Detailed (text, per-line word confidences) per engine, persisted so the
+    # confidence-weighted merge can be replayed offline with calibrated scores
+    # without re-running OCR.
+    detailed: Dict[str, Tuple[str, List[List[float]] | None]]
 
 
 def _flat_word_conf(text: str, confs: List[List[float]] | None) -> List[Tuple[str, float]]:
@@ -73,5 +77,9 @@ class EngineRunner:
             word_conf={
                 "tesseract": _flat_word_conf(tess_d, tess_conf),
                 "easyocr": _flat_word_conf(easy_d, easy_conf),
+            },
+            detailed={
+                "tesseract": (tess_d, tess_conf),
+                "easyocr": (easy_d, easy_conf),
             },
         )

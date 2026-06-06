@@ -1,7 +1,9 @@
 """Calibration metric + isotonic-refit behaviour, independent of OCR runs."""
 
 import numpy as np
+from sklearn.isotonic import IsotonicRegression
 
+from benchmarks.calib_merge import _calibrate
 from benchmarks.calibration import _domain, _ece
 from benchmarks.run_eval import _label_correct
 
@@ -41,3 +43,12 @@ def test_isotonic_refit_reduces_ece_on_overconfident_domain():
     rows = [{"conf": float(c), "correct": int(y)} for c, y in zip(conf, correct)]
     res = _domain(rows)
     assert res["ece_cal"] < res["ece_raw"]
+
+
+def test_calibrate_preserves_line_shape_and_range():
+    iso = IsotonicRegression(out_of_bounds="clip").fit(
+        np.array([0.0, 0.5, 1.0]), np.array([0, 0, 1])
+    )
+    cal = _calibrate([[0.2, 0.9], [0.5], []], iso)
+    assert [len(line) for line in cal] == [2, 1, 0]
+    assert all(0.0 <= v <= 1.0 for line in cal for v in line)
