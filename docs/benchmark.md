@@ -1,7 +1,7 @@
 # OCR Pipeline Benchmark
 
-Generated: 2026-06-05T11:34:13.879977+00:00
-Commit: `d06ce32` | Images: 296 (synthetic=216, sroie=80)
+Generated: 2026-06-06T08:33:04.470880+00:00
+Commit: `9034216` | Images: 296 (synthetic=216, sroie=80)
 Metric: mean per-sample CER/WER, whitespace-normalized (case preserved). Lower is better.
 
 ## Overall accuracy
@@ -76,6 +76,26 @@ The aggregate is dominated by SROIE receipts, where engine confidence is poorly
 calibrated and the merge is near-neutral. On domain-matched screen text the
 confidence signal is reliable and the reduction is large, concentrated on
 degraded inputs where the two engines genuinely disagree.
+
+## Confidence calibration
+
+Per-word reliability of raw engine confidence vs empirical word accuracy
+(correctness from aligning recognized words to ground truth). ECE is the
+population-weighted gap between confidence and accuracy across 10 bins; lower is
+better. "ECE calibrated" refits a per-domain isotonic regression on a held-out
+split, measured on the same held-out words.
+
+| Domain | words | accuracy | mean conf | conf − acc | ECE raw | ECE calibrated |
+|---|---|---|---|---|---|---|
+| synthetic | 4688 | 0.608 | 0.702 | +0.094 | 0.096 | 0.016 |
+| sroie | 14316 | 0.441 | 0.760 | +0.320 | 0.325 | 0.028 |
+| all | 19004 | 0.482 | 0.746 | +0.264 | 0.262 | 0.017 |
+
+The "conf − acc" gap exposes the failure mode behind the merge result: on
+out-of-domain receipts the engines are over-confident (positive gap, high raw
+ECE), so confidence-weighted disagreement handling trusts the wrong side. A
+per-domain isotonic refit collapses the ECE, which is the prerequisite for the
+confidence merge to transfer beyond screen text.
 
 ## SymSpell correction
 

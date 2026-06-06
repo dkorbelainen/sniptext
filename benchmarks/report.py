@@ -10,6 +10,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from benchmarks.calibration import calibrate
 from benchmarks.train_selector import train_and_report
 
 _RESULTS = Path(__file__).resolve().parent / "results.json"
@@ -120,6 +121,22 @@ def main():
     for name, delta in sorted(abl.items(), key=lambda kv: -kv[1]):
         abl_lines.append(f"| {name} | {cv_mean - delta:.3f} | {delta:+.3f} |")
 
+    # Per-word confidence calibration: held-out ECE before/after a per-domain
+    # isotonic refit, plus the over/under-confidence gap (mean conf - accuracy).
+    cal = calibrate()
+    cal_lines = [
+        "| Domain | words | accuracy | mean conf | conf − acc | ECE raw | ECE calibrated |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for src in ("synthetic", "sroie", "all"):
+        c = cal.get(src)
+        if c:
+            gap = c["mean_conf"] - c["accuracy"]
+            cal_lines.append(
+                f"| {src} | {c['n']} | {c['accuracy']:.3f} | {c['mean_conf']:.3f} | "
+                f"{gap:+.3f} | {c['ece_raw']:.3f} | {c['ece_cal']:.3f} |"
+            )
+
     # Per-difficulty (synthetic) table.
     diff_lines = ["| Difficulty | n | CER Tesseract | CER Ensemble |", "|---|---|---|---|"]
     for diff in ("clean", "medium", "heavy"):
@@ -189,6 +206,22 @@ The aggregate is dominated by SROIE receipts, where engine confidence is poorly
 calibrated and the merge is near-neutral. On domain-matched screen text the
 confidence signal is reliable and the reduction is large, concentrated on
 degraded inputs where the two engines genuinely disagree.
+
+## Confidence calibration
+
+Per-word reliability of raw engine confidence vs empirical word accuracy
+(correctness from aligning recognized words to ground truth). ECE is the
+population-weighted gap between confidence and accuracy across 10 bins; lower is
+better. "ECE calibrated" refits a per-domain isotonic regression on a held-out
+split, measured on the same held-out words.
+
+{chr(10).join(cal_lines)}
+
+The "conf − acc" gap exposes the failure mode behind the merge result: on
+out-of-domain receipts the engines are over-confident (positive gap, high raw
+ECE), so confidence-weighted disagreement handling trusts the wrong side. A
+per-domain isotonic refit collapses the ECE, which is the prerequisite for the
+confidence merge to transfer beyond screen text.
 
 ## SymSpell correction
 
