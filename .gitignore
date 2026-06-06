@@ -81,3 +81,8 @@ config.yaml
 # OCR eval harness local data / outputs
 benchmarks/data/
 benchmarks/results.json
+benchmarks/word_conf.json
+benchmarks/merge_inputs.json
+
+# uv lockfile (not consumed by CI/build; pip-based install)
+uv.lock

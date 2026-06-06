@@ -1,7 +1,7 @@
 # OCR Pipeline Benchmark
 
-Generated: 2026-06-05T11:34:13.879977+00:00
-Commit: `d06ce32` | Images: 296 (synthetic=216, sroie=80)
+Generated: 2026-06-06T11:53:19.356447+00:00
+Commit: `e991a16` | Images: 296 (synthetic=216, sroie=80)
 Metric: mean per-sample CER/WER, whitespace-normalized (case preserved). Lower is better.
 
 ## Overall accuracy
@@ -76,6 +76,50 @@ The aggregate is dominated by SROIE receipts, where engine confidence is poorly
 calibrated and the merge is near-neutral. On domain-matched screen text the
 confidence signal is reliable and the reduction is large, concentrated on
 degraded inputs where the two engines genuinely disagree.
+
+## Confidence calibration
+
+Per-word reliability of raw engine confidence vs empirical word accuracy
+(correctness from aligning recognized words to ground truth). ECE is the
+population-weighted gap between confidence and accuracy across 10 bins; lower is
+better. "ECE calibrated" refits a per-domain isotonic regression on a held-out
+split, measured on the same held-out words.
+
+| Domain | words | accuracy | mean conf | conf − acc | ECE raw | ECE calibrated |
+|---|---|---|---|---|---|---|
+| synthetic | 4688 | 0.608 | 0.702 | +0.094 | 0.096 | 0.016 |
+| sroie | 14316 | 0.441 | 0.760 | +0.320 | 0.325 | 0.028 |
+| all | 19004 | 0.482 | 0.746 | +0.264 | 0.262 | 0.017 |
+
+The "conf − acc" gap exposes the failure mode behind the merge result: on
+out-of-domain receipts the engines are over-confident (positive gap, high raw
+ECE), so confidence-weighted disagreement handling trusts the wrong side. A
+per-domain isotonic refit collapses the ECE, which is the prerequisite for the
+confidence merge to transfer beyond screen text.
+
+### Calibrated merge (held-out images)
+
+Replaying the confidence-weighted merge on a held-out image split with three
+confidence sources — text heuristic, raw engine confidence, and a per-engine
+isotonic calibration fit on the train split. The calibrator is wrapped around
+the same word confidences the merge already consumes; no OCR is re-run. The
+calibrator is fit per engine on purpose: the merge picks between engines by
+comparing their confidences, so it is invariant to a shared monotone rescaling
+and only an engine-specific map can re-rank one engine against the other.
+
+| Domain | test img | CER heuristic | CER raw conf | CER calibrated | calib − raw |
+|---|---|---|---|---|---|
+| synthetic | 65 | 0.255 | 0.178 | 0.180 | +0.002 |
+| sroie | 24 | 0.449 | 0.515 | 0.480 | -0.035 |
+| all | 89 | 0.307 | 0.269 | 0.261 | -0.008 |
+
+"calib − raw" is the CER change from feeding calibrated instead of raw
+confidence into the merge. Raw confidence is a large win on domain-matched
+screen text but a regression on out-of-domain receipts; calibration keeps the
+screen-text win essentially intact while recovering about half of the receipt
+regression, giving the best aggregate CER of the three sources. It does not by
+itself beat the pure text heuristic on receipts — engine confidence there is too
+degraded — but it removes most of the penalty for using one global merge policy.
 
 ## SymSpell correction
 

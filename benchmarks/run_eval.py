@@ -11,6 +11,7 @@ that image, else "fast".
 """
 
 import argparse
+import difflib
 import json
 import sys
 from pathlib import Path
@@ -28,7 +29,25 @@ from sniptext.config import Config
 
 _MARGIN = 0.0
 _RESULTS = Path(__file__).resolve().parent / "results.json"
+_WORD_CONF = Path(__file__).resolve().parent / "word_conf.json"
+_MERGE_INPUTS = Path(__file__).resolve().parent / "merge_inputs.json"
 _SYNTH_DIR = Path(__file__).resolve().parent / "data" / "synthetic"
+
+
+def _label_correct(rec_words, gt_words):
+    """Per-recognized-word correctness via sequence alignment to GT tokens.
+
+    A recognized word counts as correct only if it survives in an 'equal'
+    block of the optimal alignment; substitutions/deletions are incorrect.
+    This yields the (confidence, correct) pairs a reliability diagram needs.
+    """
+    labels = [0] * len(rec_words)
+    sm = difflib.SequenceMatcher(None, rec_words, gt_words, autojunk=False)
+    for tag, i1, i2, _j1, _j2 in sm.get_opcodes():
+        if tag == "equal":
+            for i in range(i1, i2):
+                labels[i] = 1
+    return labels
 
 
 def _collect_samples(source: str, limit, n_per_combo, seed):
@@ -69,16 +88,42 @@ def main():
     analyzer = ImageAnalyzer()
 
     rows = []
+    word_conf = []
+    merge_inputs = []
     samples = list(_collect_samples(args.source, args.limit, args.n_per_combo, args.seed))
     for i, sample in enumerate(samples):
         img_path, gt = sample["path"], sample["gt"]
         try:
-            texts = runner.run_all(img_path)
+            result = runner.run_all(img_path)
         except Exception as e:
             print(f"[skip] {img_path.name}: {e}", file=sys.stderr)
             continue
+        texts = result.texts
 
         gt_n = normalize_text(gt)
+        gt_words = gt_n.split()
+        merge_inputs.append(
+            {
+                "source": sample["source"],
+                "gt": gt,
+                "tess_text": result.detailed["tesseract"][0],
+                "tess_conf": result.detailed["tesseract"][1],
+                "easy_text": result.detailed["easyocr"][0],
+                "easy_conf": result.detailed["easyocr"][1],
+            }
+        )
+        for engine, pairs in result.word_conf.items():
+            rec_words = [w for w, _ in pairs]
+            labels = _label_correct(rec_words, gt_words)
+            for (_, conf), correct in zip(pairs, labels):
+                word_conf.append(
+                    {
+                        "conf": conf,
+                        "correct": correct,
+                        "source": sample["source"],
+                        "engine": engine,
+                    }
+                )
         features = analyzer.extract_features(Image.open(img_path).convert("RGB"))
         cer_tess = cer(normalize_text(texts["tesseract"]), gt_n)
         cer_easy = cer(normalize_text(texts["easyocr"]), gt_n)
@@ -116,7 +161,11 @@ def main():
             print(f"processed {i + 1}/{len(samples)}...", file=sys.stderr)
 
     _RESULTS.write_text(json.dumps(rows, indent=2))
+    _WORD_CONF.write_text(json.dumps(word_conf))
+    _MERGE_INPUTS.write_text(json.dumps(merge_inputs))
     print(f"Wrote {len(rows)} rows to {_RESULTS}")
+    print(f"Wrote {len(word_conf)} word-confidence pairs to {_WORD_CONF}")
+    print(f"Wrote {len(merge_inputs)} merge inputs to {_MERGE_INPUTS}")
 
 
 if __name__ == "__main__":
