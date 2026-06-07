@@ -9,6 +9,11 @@ docs/superpowers/
 # AUR package repository (separate repo)
 aur-sniptext-aur/
 
+# Flatpak build artifacts
+.flatpak-builder/
+build-flatpak-dir/
+flatpak/build-dir/
+
 # Python
 __pycache__/
 *.py[cod]

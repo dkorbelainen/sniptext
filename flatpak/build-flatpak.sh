@@ -3,11 +3,12 @@
 
 set -e
 
-MANIFEST="io.github.dkorbelainen.SnipText.json"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+MANIFEST="$SCRIPT_DIR/io.github.dkorbelainen.SnipText.json"
 APP_ID="io.github.dkorbelainen.SnipText"
 
 if [ ! -f "$MANIFEST" ]; then
-    echo "Error: $MANIFEST not found. Run from repository root."
+    echo "Error: $MANIFEST not found."
     exit 1
 fi
 
