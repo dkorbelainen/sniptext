@@ -2,7 +2,7 @@
 Name=SnipText
 Comment=Screen capture OCR tool
 Exec=sniptext --capture-now
-Icon=org.sniptext.SnipText
+Icon=io.github.dkorbelainen.SnipText
 Terminal=false
 Type=Application
 Categories=Utility;Graphics;TextTools;

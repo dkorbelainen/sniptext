@@ -3,8 +3,8 @@
 
 set -e
 
-MANIFEST="org.sniptext.SnipText.json"
-APP_ID="org.sniptext.SnipText"
+MANIFEST="io.github.dkorbelainen.SnipText.json"
+APP_ID="io.github.dkorbelainen.SnipText"
 
 if [ ! -f "$MANIFEST" ]; then
     echo "Error: $MANIFEST not found. Run from repository root."
