@@ -73,6 +73,7 @@ config.yaml
 *.png
 *.jpg
 *.jpeg
+!docs/img/*.png
 
 # OCR eval harness local data / outputs
 benchmarks/data/
