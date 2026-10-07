@@ -153,6 +153,11 @@ class EasyOCRBackend(OCRBackend):
             logger.warning("EasyOCR not installed. Install with: pip install easyocr")
             self._available = False
             return False
+        except Exception as e:
+            # A broken torch or CUDA library raises OSError here, not ImportError.
+            logger.warning(f"EasyOCR cannot be imported: {e}")
+            self._available = False
+            return False
 
     def is_available(self) -> bool:
         return self._check_available()
@@ -418,8 +423,6 @@ class OCREngine:
         easyocr = self.backends["easyocr"]
         if not tesseract.is_available():
             return easyocr.recognize_detailed(image)[0], "easyocr"
-        if not easyocr.is_available():
-            return tesseract.recognize(image), "tesseract"
         router = self._get_router()
         if not router.available:
             return tesseract.recognize(image), "tesseract"
@@ -440,10 +443,14 @@ class OCREngine:
                 return tesseract.recognize(image), action
             return tesseract.recognize_detailed(image)[0], action
 
-        try:
-            easy_result = easyocr.recognize_detailed(image)
-        except Exception as e:
-            logger.warning(f"EasyOCR failed ({e}); using Tesseract")
+        # Asked only now: the check imports torch, seconds a Tesseract capture must not pay.
+        easy_result = None
+        if easyocr.is_available():
+            try:
+                easy_result = easyocr.recognize_detailed(image)
+            except Exception as e:
+                logger.warning(f"EasyOCR failed ({e}); using Tesseract")
+        if easy_result is None:
             if tess_result is not None:
                 return tess_result[0], "tesseract"
             return tesseract.recognize(image), "tesseract"
