@@ -7,6 +7,7 @@ per-engine isotonic calibration fit on the train split - and compares mean CER.
 No OCR is re-run; the detailed engine outputs are read from merge_inputs.json.
 """
 
+import difflib
 import json
 from pathlib import Path
 from typing import Dict, List
@@ -17,11 +18,21 @@ from sklearn.model_selection import GroupShuffleSplit
 
 from benchmarks.engines import _flat_word_conf
 from benchmarks.metrics import cer, normalize_text
-from benchmarks.run_eval import _label_correct
 from sniptext.ensemble import EnsembleOCR
 
 _MERGE_INPUTS = Path(__file__).resolve().parent / "merge_inputs.json"
 _ENGINES = ("tess", "easy")
+
+
+def _label_correct(rec_words, gt_words):
+    """Per-recognized-word correctness via sequence alignment to GT tokens."""
+    labels = [0] * len(rec_words)
+    sm = difflib.SequenceMatcher(None, rec_words, gt_words, autojunk=False)
+    for tag, i1, i2, _j1, _j2 in sm.get_opcodes():
+        if tag == "equal":
+            for i in range(i1, i2):
+                labels[i] = 1
+    return labels
 
 
 def _fit_calibrators(train: List[dict]) -> Dict[str, IsotonicRegression]:

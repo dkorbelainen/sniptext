@@ -6,9 +6,8 @@ import numpy as np
 from sklearn.isotonic import IsotonicRegression
 
 from benchmarks import calib_merge, calibration
-from benchmarks.calib_merge import _calibrate
+from benchmarks.calib_merge import _calibrate, _label_correct
 from benchmarks.calibration import _domain, _ece, reliability
-from benchmarks.run_eval import _label_correct
 
 
 def test_ece_perfectly_calibrated_is_zero():
