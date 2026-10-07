@@ -184,6 +184,11 @@ def test_run_end_to_end(tmp_path):
     assert set(ev["breakdown"]) == {"degradation", "theme", "lang", "content"}
     assert set(ev["breakdown"]["degradation"]) == {"none", "blur", "two combined"}
     assert ev["cpu"]["ratio"] == pytest.approx(10.0)
+    # The app keeps the shipped weight on a CPU, so that row has the test-slice CER.
+    as_shipped = ev["cpu"]["shipped"]
+    assert as_shipped["time_weight"] == ev["policies"][ev["shipped"]]["time_weight"]
+    assert as_shipped["cer"] == pytest.approx(by_name[f"router_{ev['shipped']}"]["cer"][0])
+    assert as_shipped["time"] >= by_name[f"router_{ev['shipped']}"]["time"]
     assert set(ev["weak_labels"]) == {"synthetic", "all"}
 
     router = Router(table, cache_dir=tmp_path / "cache")

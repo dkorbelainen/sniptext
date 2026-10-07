@@ -246,7 +246,7 @@ def run(results, table_path, eval_path, timing_path, candidates=CANDIDATES) -> d
 
     base = fitted["pre_ocr"]
     best_static = int(np.argmin(base["y"][dev].mean(axis=0)))
-    slices, per_image = {}, {}
+    slices, per_image, app_actions = {}, {}, {}
     with tempfile.TemporaryDirectory() as cache:
         router = Router(table_path, cache_dir=cache)
         for name in _EVAL_SLICES:
@@ -267,6 +267,7 @@ def run(results, table_path, eval_path, timing_path, candidates=CANDIDATES) -> d
                     actions = np.array(
                         [ACTIONS.index(router.choose_vector(x)) for x in f["X"][mask]]
                     )
+                    app_actions[name] = actions
                 else:
                     actions = choose_actions(
                         f["model"].predict_cer(f["X"][mask]), f["costs"], f["weight"]
@@ -343,6 +344,16 @@ def run(results, table_path, eval_path, timing_path, candidates=CANDIDATES) -> d
                 "cer": float(base["y"][test][:, k].mean()),
                 "time": float(cpu_times[:, k].mean()),
             }
+        # The app does not know the device: on a CPU it still uses the shipped costs and weight.
+        ship = fitted[shipped]
+        ship_times = time_matrix(
+            shipped, ship["times"][test][:, 0], data["time"]["easyocr"][test] * ratio
+        )
+        cpu["shipped"] = {
+            "time_weight": ship["weight"],
+            "cer": float(realized(ship["y"][test], app_actions["test"]).mean()),
+            "time": float(realized(ship_times, app_actions["test"]).mean()),
+        }
         for policy in POLICIES:
             f = fitted[policy]
             costs = action_costs(policy, f["t_tess"], t_easy * ratio)

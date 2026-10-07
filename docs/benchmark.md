@@ -1,6 +1,6 @@
 # OCR engine router benchmark
 
-Generated: 2026-10-07. Commit: `3e7e365`. Engines run with `eng+rus`.
+Generated: 2026-10-07. Commit: `5fd5a0e`. Engines run with `eng+rus`.
 
 ## Task
 
@@ -70,15 +70,16 @@ Each line traces one router as the time weight grows from 0. Times are measured 
 
 Router, image features spans 87 to 146 ms and CER 0.072 to 0.124; Router, cascade spans 153 to 154 ms and CER 0.074 to 0.075. The cascade runs Tesseract on every image, so its time cannot fall below Tesseract's.
 
-On a CPU EasyOCR is 4.5 times slower (measured on a sample of images). With EasyOCR times scaled by that factor and the time weight re-chosen by the same rule, on held-out texts:
+On a CPU EasyOCR is 4.5 times slower (measured on a sample of images). The table scales EasyOCR times by that factor, on held-out texts. The app does not know the device, so on a CPU it runs the "as shipped" row: the same choices as above at CPU cost. The rows with the weight re-chosen show what the same rule would pick from CPU times; the app does not do that.
 
 | Policy | CER | Time, ms | Time weight |
 |---|---|---|---|
 | Always Tesseract | 0.103 | 150 | |
 | Always EasyOCR | 0.308 | 192 | |
 | Always merge | 0.114 | 342 | |
-| Router, image features | 0.072 | 146 | 2.000 |
-| Router, cascade | 0.077 | 156 | 2.000 |
+| Router, image features, as shipped | 0.076 | 156 | 0.567 |
+| Router, image features, weight re-chosen | 0.072 | 146 | 2.000 |
+| Router, cascade, weight re-chosen | 0.077 | 156 | 2.000 |
 
 ## Model selection
 
@@ -214,6 +215,7 @@ The merge replayed on held-out texts with three ways of resolving disagreements:
 - The images are rendered, not captured. Real screenshots have anti-aliasing, mixed fonts, icons and layouts this corpus does not cover; no manually transcribed screenshots are included.
 - English and Russian only, with engines configured for both. A single-language setup may rank the engines differently.
 - Times are from one machine. The time weight trades error for seconds as measured there.
+- Times are measured with both engines loaded. The first capture of a process that goes to EasyOCR also pays for importing it and loading its models, which the router's cost does not include; a one-shot run pays that on every such capture.
 - EasyOCR reports one confidence per detected line; the word-level merge treats it as the confidence of every word in the line.
 
 ## Reproduce

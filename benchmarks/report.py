@@ -334,15 +334,22 @@ def render(ev: dict, calib: dict, merge: dict, commit: str, generated: str) -> s
                 f"| Always {_ACTION_LABELS[action]} | {values['cer']:.3f} "
                 f"| {values['time'] * 1000:.0f} | |"
             )
+        as_shipped = cpu["shipped"]
+        lines.append(
+            f"| {_LABELS['router_' + shipped]}, as shipped | {as_shipped['cer']:.3f} "
+            f"| {as_shipped['time'] * 1000:.0f} | {as_shipped['time_weight']:.3f} |"
+        )
         for policy, values in cpu["policies"].items():
             lines.append(
-                f"| {_LABELS['router_' + policy]} | {values['cer']:.3f} "
+                f"| {_LABELS['router_' + policy]}, weight re-chosen | {values['cer']:.3f} "
                 f"| {values['time'] * 1000:.0f} | {values['time_weight']:.3f} |"
             )
         out += [
             f"On a CPU EasyOCR is {cpu['ratio']:.1f} times slower (measured on a sample of "
-            "images). With EasyOCR times scaled by that factor and the time weight re-chosen by "
-            "the same rule, on held-out texts:\n",
+            "images). The table scales EasyOCR times by that factor, on held-out texts. The app "
+            'does not know the device, so on a CPU it runs the "as shipped" row: the same '
+            "choices as above at CPU cost. The rows with the weight re-chosen show what the same "
+            "rule would pick from CPU times; the app does not do that.\n",
             "\n".join(lines) + "\n",
         ]
 
@@ -425,6 +432,9 @@ def render(ev: dict, calib: dict, merge: dict, commit: str, generated: str) -> s
         "may rank the engines differently.\n"
         "- Times are from one machine. The time weight trades error for seconds as measured "
         "there.\n"
+        "- Times are measured with both engines loaded. The first capture of a process that goes "
+        "to EasyOCR also pays for importing it and loading its models, which the router's cost "
+        "does not include; a one-shot run pays that on every such capture.\n"
         "- EasyOCR reports one confidence per detected line; the word-level merge treats it as "
         "the confidence of every word in the line.\n",
         "## Reproduce\n",

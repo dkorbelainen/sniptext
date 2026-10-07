@@ -60,6 +60,16 @@ def test_render_gives_a_verdict_per_slice_and_the_shipping_rule(tmp_path):
     assert "spans" in text
 
 
+def test_render_separates_what_the_app_does_on_a_cpu_from_a_retuned_weight(tmp_path):
+    ev = evaluation(tmp_path)
+    text = report.render(ev, CALIB, MERGE, "abc1234", "2026-10-07")
+    shipped = report._LABELS["router_" + ev["shipped"]]
+    assert f"| {shipped}, as shipped |" in text
+    assert "weight re-chosen" in text
+    limitations = text.split("## Limitations")[1]
+    assert "first capture" in limitations
+
+
 def test_render_without_cpu_timing(tmp_path):
     ev = evaluation(tmp_path)
     ev["cpu"] = None
