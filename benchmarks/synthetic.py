@@ -58,6 +58,7 @@ class Sample:
     font_size: int
     theme: str
     degradation: str
+    scale: float = 1.0
 
 
 @lru_cache(maxsize=None)
