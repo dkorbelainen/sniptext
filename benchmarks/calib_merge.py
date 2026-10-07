@@ -13,7 +13,7 @@ from typing import Dict, List
 
 import numpy as np
 from sklearn.isotonic import IsotonicRegression
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import GroupShuffleSplit
 
 from benchmarks.engines import _flat_word_conf
 from benchmarks.metrics import cer, normalize_text
@@ -86,7 +86,10 @@ def evaluate() -> Dict[str, Dict[str, float]]:
         rows = [r for r in data if r["source"] == src]
         if len(rows) < 4:
             continue
-        train, test = train_test_split(rows, test_size=0.3, random_state=42)
+        splitter = GroupShuffleSplit(n_splits=1, test_size=0.3, random_state=42)
+        fit_rows, held_out = next(splitter.split(rows, groups=[r["text_id"] for r in rows]))
+        train = [rows[i] for i in fit_rows]
+        test = [rows[i] for i in held_out]
         out[src] = _domain(test, _fit_calibrators(train))
     if len(out) > 1:
         # Aggregate row: each domain keeps its own calibrator, so pool the
