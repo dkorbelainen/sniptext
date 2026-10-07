@@ -281,8 +281,9 @@ class OCREngine:
         }
         self.backend = self._initialize_backend()
 
-        self.confidence_model = None
-        self._confidence_enabled = (
+        self.router = None
+        self._analyzer = ImageAnalyzer()
+        self._routing_enabled = (
             self.config.adaptive_ensemble and self.config.ocr_engine == "ensemble"
         )
 
@@ -290,7 +291,7 @@ class OCREngine:
         logger.info(f"OCR Engine initialized with backend: {backend_name}")
         logger.info(f"OCR Language: {config.ocr_language}")
         logger.info(f"Text Correction: {config.enable_text_correction}")
-        if self._confidence_enabled:
+        if self._routing_enabled:
             logger.info("Adaptive ensemble: enabled")
 
     def _initialize_backend(self) -> OCRBackend:
@@ -321,17 +322,17 @@ class OCREngine:
         """Get list of available backend names."""
         return [name for name, backend in self.backends.items() if backend.is_available()]
 
-    def _get_confidence_model(self):
-        """Lazy initialization of confidence model (only when first needed)."""
-        if self.confidence_model is None and self._confidence_enabled:
-            from .confidence import ConfidenceModel
+    def _get_router(self):
+        """Create the router on first use; it loads its table and model lazily."""
+        if self.router is None:
+            from .router import Router
 
-            self.confidence_model = ConfidenceModel()
-        return self.confidence_model
+            self.router = Router(time_weight=self.config.router_time_weight)
+        return self.router
 
     def recognize(self, image: np.ndarray) -> str:
         """
-        Recognize text from image using adaptive strategy.
+        Recognize text from image, choosing the OCR action per image when adaptive.
 
         Args:
             image: Input image (numpy array)
@@ -342,48 +343,15 @@ class OCREngine:
         try:
             pil_image = self._prepare_image(image)
 
-            confidence_model = self._get_confidence_model()
-            features = (
-                confidence_model.analyzer.extract_features(pil_image) if confidence_model else None
-            )
-
-            text = ""
-            if confidence_model and self.config.ocr_engine == "ensemble":
-                # Check if we should run A/B test
-                import random
-
-                should_ab_test = random.random() < self.config.ab_test_probability
-
-                if should_ab_test:
-                    logger.debug("Running A/B test (both strategies)")
-                    text = self._run_ab_test(pil_image, features, confidence_model)
-                else:
-                    # Normal adaptive mode
-                    strategy, confidence = confidence_model.predict_strategy(pil_image)
-
-                    if strategy == "fast":
-                        logger.debug(f"Using fast mode (confidence: {confidence:.2f})")
-                        text = self.backend.recognize(pil_image)
-                    else:
-                        logger.debug(f"Using ensemble mode (confidence: {confidence:.2f})")
-                        text = self._recognize_ensemble(pil_image)
-
-                    if text:
-                        logger.info(
-                            f"Recognized text: {len(text)} characters (strategy: {strategy})"
-                        )
+            if self._routing_enabled:
+                text, mode = self._recognize_routed(pil_image)
             elif self.config.ocr_engine == "ensemble":
-                # Always use ensemble without adaptive selection
-                text = self._recognize_ensemble(pil_image)
-                if text:
-                    logger.info(f"Recognized text: {len(text)} characters (mode: ensemble)")
+                text, mode = self._recognize_ensemble(pil_image), "ensemble"
             else:
-                # Use single backend
-                text = self.backend.recognize(pil_image)
-                if text:
-                    logger.info(f"Recognized text: {len(text)} characters")
+                text, mode = self.backend.recognize(pil_image), "single"
 
             if text:
+                logger.info(f"Recognized text: {len(text)} characters (mode: {mode})")
                 logger.debug(f"Text preview: {text[:100]}...")
 
                 if self.config.enable_text_correction:
@@ -444,107 +412,52 @@ class OCREngine:
 
         return combined
 
-    def _run_ab_test(self, image: Image.Image, features: np.ndarray, confidence_model) -> str:
-        """
-        Run A/B test: execute both fast and ensemble strategies, compare results.
+    def _recognize_routed(self, image: Image.Image) -> tuple[str, str]:
+        """Run the action the router picks for this image. Returns (text, action)."""
+        tesseract = self.backends["tesseract"]
+        easyocr = self.backends["easyocr"]
+        if not tesseract.is_available():
+            return easyocr.recognize_detailed(image)[0], "easyocr"
+        if not easyocr.is_available():
+            return tesseract.recognize(image), "tesseract"
+        router = self._get_router()
+        if not router.available:
+            return tesseract.recognize(image), "tesseract"
 
-        Args:
-            image: PIL Image to process
-            features: Extracted features for the image
-            confidence_model: ConfidenceModel instance
-
-        Returns:
-            Text from the better strategy
-        """
-        from .metrics import OCRQualityMetrics, extract_confidence_scores
-
-        metrics = OCRQualityMetrics()
-
-        # Resolve the fast strategy backend (tesseract only).
-        fast_backend = (
-            self.backend
-            if isinstance(self.backend, TesseractBackend)
-            else self.backends.get("tesseract")
-        )
-        if not fast_backend or not fast_backend.is_available():
-            logger.info(
-                "A/B: Skipping test because Tesseract is not available; "
-                "using ensemble strategy only"
-            )
-            try:
-                return self._recognize_ensemble(image)
-            except Exception as e:
-                logger.warning(
-                    f"A/B: Ensemble strategy failed while Tesseract was unavailable: {e}"
-                )
-                return ""
-
-        # Run fast strategy (tesseract only)
-        fast_text = ""
-        fast_confidences = None
-        try:
-            logger.debug("A/B: Running fast strategy")
-            enhanced_image = fast_backend._analyzer.enhance_for_ocr(image)
-            fast_text = fast_backend.recognize(enhanced_image)
-            # Extract confidence scores
-            try:
-                import pytesseract
-                from pytesseract import Output
-
-                lang_code = self.config.ocr_language
-                data = pytesseract.image_to_data(
-                    enhanced_image, lang=lang_code, output_type=Output.DICT
-                )
-                if data:
-                    fast_confidences = extract_confidence_scores(data)
-            except Exception as e:
-                logger.debug(f"Could not extract confidence scores: {e}")
-        except Exception as e:
-            logger.warning(f"A/B: Fast strategy failed: {e}")
-
-        # Run ensemble strategy
-        ensemble_text = ""
-        try:
-            logger.debug("A/B: Running ensemble strategy")
-            ensemble_text = self._recognize_ensemble(image)
-        except Exception as e:
-            logger.warning(f"A/B: Ensemble strategy failed: {e}")
-
-        # Calculate quality scores
-        fast_quality = metrics.calculate_quality_score(fast_text, fast_confidences)
-        ensemble_quality = metrics.calculate_quality_score(ensemble_text, None)
-
-        fast_result = {
-            "text": fast_text,
-            "quality_score": fast_quality,
-            "length": len(fast_text),
-        }
-
-        ensemble_result = {
-            "text": ensemble_text,
-            "quality_score": ensemble_quality,
-            "length": len(ensemble_text),
-        }
-
-        # Record results for training
-        confidence_model.record_result(
-            features,
-            fast_result=fast_result,
-            ensemble_result=ensemble_result,
-        )
-
-        # Return the better result
-        if fast_quality >= ensemble_quality:
-            logger.info(
-                f"A/B: Using fast result (quality: {fast_quality:.2f} vs {ensemble_quality:.2f})"
-            )
-            return fast_text
+        features = self._analyzer.extract_features(image)
+        tess_result = None
+        if router.policy == "cascade":
+            tess_result = tesseract.recognize_detailed(image)
+            action = router.choose(features, tess_result[1])
         else:
-            logger.info(
-                f"A/B: Using ensemble result (quality: {ensemble_quality:.2f} vs "
-                f"{fast_quality:.2f})"
-            )
-            return ensemble_text
+            action = router.choose(features)
+        logger.debug(f"Router action: {action}")
+
+        if action == "tesseract":
+            if tess_result is not None:
+                return tess_result[0], action
+            if router.tesseract_call == "plain":
+                return tesseract.recognize(image), action
+            return tesseract.recognize_detailed(image)[0], action
+
+        try:
+            easy_result = easyocr.recognize_detailed(image)
+        except Exception as e:
+            logger.warning(f"EasyOCR failed ({e}); using Tesseract")
+            if tess_result is not None:
+                return tess_result[0], "tesseract"
+            return tesseract.recognize(image), "tesseract"
+        if action == "easyocr":
+            return easy_result[0], action
+
+        if tess_result is None:
+            tess_result = tesseract.recognize_detailed(image)
+        from .ensemble import EnsembleOCR
+
+        merged = EnsembleOCR().combine_results(
+            [tess_result[0], easy_result[0]], [tess_result[1], easy_result[1]]
+        )
+        return merged, action
 
     def _prepare_image(self, image: "np.ndarray | Image.Image") -> Image.Image:
         """

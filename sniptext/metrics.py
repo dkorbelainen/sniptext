@@ -187,22 +187,3 @@ class OCRQualityMetrics:
             return "tie"
 
         return "result1" if score1 > score2 else "result2"
-
-
-def extract_confidence_scores(tesseract_data: Dict) -> Optional[List[float]]:
-    """
-    Extract per-character confidence scores from Tesseract data.
-
-    Args:
-        tesseract_data: Dict from pytesseract.image_to_data(output_type=Output.DICT)
-
-    Returns:
-        List of confidence scores (0-100) or None if not available
-    """
-    if not tesseract_data or "conf" not in tesseract_data:
-        return None
-
-    # Filter out -1 confidence (no text detected)
-    confidences = [float(c) for c in tesseract_data["conf"] if c != -1]
-
-    return confidences if confidences else None

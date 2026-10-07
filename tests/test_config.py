@@ -267,3 +267,31 @@ class TestConfigProfiles:
         (profiles_dir / "bad.yaml").write_text("- item1\n- item2\n")  # list, not mapping
         with pytest.raises(ValueError, match="mapping"):
             Config.load_with_profile(config_path, "bad")
+
+
+class TestRouterConfig:
+    def test_time_weight_defaults_to_the_benchmarked_value(self):
+        assert Config().router_time_weight is None
+
+    def test_time_weight_accepts_non_negative_numbers(self):
+        assert Config(router_time_weight=0).router_time_weight == 0.0
+        assert Config(router_time_weight="0.25").router_time_weight == 0.25
+
+    def test_invalid_time_weight_resets_to_none(self):
+        assert Config(router_time_weight=-1).router_time_weight is None
+        assert Config(router_time_weight="fast").router_time_weight is None
+        assert Config(router_time_weight=True).router_time_weight is None
+
+    def test_time_weight_round_trip(self, tmp_path):
+        path = tmp_path / "config.yaml"
+        Config(router_time_weight=0.5).save(path)
+        assert Config.load(path).router_time_weight == 0.5
+        Config().save(path)
+        assert Config.load(path).router_time_weight is None
+
+    def test_removed_ab_test_key_is_dropped(self, tmp_path):
+        path = tmp_path / "config.yaml"
+        path.write_text("ocr_engine: ensemble\nab_test_probability: 0.15\n")
+        config = Config.load(path)
+        assert config.ocr_engine == "ensemble"
+        assert not hasattr(config, "ab_test_probability")

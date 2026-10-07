@@ -324,3 +324,118 @@ class TestInitializeBackend:
         ):
             with pytest.raises(RuntimeError, match="No OCR backend available"):
                 eng._initialize_backend()
+
+
+class FakeRouter:
+    def __init__(self, action, policy="pre_ocr", tesseract_call="detailed", available=True):
+        self.action = action
+        self.policy = policy
+        self.tesseract_call = tesseract_call
+        self.available = available
+        self.calls = []
+
+    def choose(self, features, tesseract_conf=None):
+        self.calls.append((len(features), tesseract_conf))
+        return self.action
+
+
+def routed_engine(router, tess_available=True, easy_available=True):
+    """OCREngine in adaptive mode with stub backends and a stub router."""
+    with patch.object(TesseractBackend, "is_available", return_value=True):
+        engine = OCREngine(
+            Config(ocr_engine="ensemble", adaptive_ensemble=True, enable_text_correction=False)
+        )
+    tess = MagicMock()
+    tess.is_available.return_value = tess_available
+    tess.recognize.return_value = "hello plain"
+    tess.recognize_detailed.return_value = ("hello wor1d", [[0.9, 0.3]])
+    easy = MagicMock()
+    easy.is_available.return_value = easy_available
+    easy.recognize_detailed.return_value = ("hello world", [[0.8, 0.8]])
+    engine.backends = {"tesseract": tess, "easyocr": easy}
+    engine.router = router
+    return engine, tess, easy
+
+
+WHITE = np.full((60, 200, 3), 255, dtype=np.uint8)
+
+
+class TestRoutedRecognize:
+    def test_tesseract_action_uses_one_detailed_call(self):
+        engine, tess, easy = routed_engine(FakeRouter("tesseract"))
+        assert engine.recognize(WHITE) == "hello wor1d"
+        assert tess.recognize_detailed.call_count == 1
+        tess.recognize.assert_not_called()
+        easy.recognize_detailed.assert_not_called()
+        assert engine.router.calls == [(12, None)]
+
+    def test_tesseract_action_honours_plain_call(self):
+        engine, tess, _ = routed_engine(FakeRouter("tesseract", tesseract_call="plain"))
+        assert engine.recognize(WHITE) == "hello plain"
+        tess.recognize_detailed.assert_not_called()
+
+    def test_easyocr_action_skips_tesseract(self):
+        engine, tess, easy = routed_engine(FakeRouter("easyocr"))
+        assert engine.recognize(WHITE) == "hello world"
+        tess.recognize.assert_not_called()
+        tess.recognize_detailed.assert_not_called()
+        assert easy.recognize_detailed.call_count == 1
+
+    def test_merge_action_resolves_by_confidence(self):
+        engine, tess, easy = routed_engine(FakeRouter("merge"))
+        assert engine.recognize(WHITE) == "hello world"
+        assert tess.recognize_detailed.call_count == 1
+        assert easy.recognize_detailed.call_count == 1
+
+    def test_cascade_passes_tesseract_confidence_and_reuses_its_text(self):
+        engine, tess, easy = routed_engine(FakeRouter("tesseract", policy="cascade"))
+        assert engine.recognize(WHITE) == "hello wor1d"
+        assert tess.recognize_detailed.call_count == 1
+        tess.recognize.assert_not_called()
+        easy.recognize_detailed.assert_not_called()
+        assert engine.router.calls == [(12, [[0.9, 0.3]])]
+
+    def test_cascade_merge_runs_tesseract_once(self):
+        engine, tess, _ = routed_engine(FakeRouter("merge", policy="cascade"))
+        assert engine.recognize(WHITE) == "hello world"
+        assert tess.recognize_detailed.call_count == 1
+
+    def test_cascade_with_empty_tesseract_result(self):
+        engine, tess, _ = routed_engine(FakeRouter("easyocr", policy="cascade"))
+        tess.recognize_detailed.return_value = ("", None)
+        assert engine.recognize(WHITE) == "hello world"
+        assert engine.router.calls == [(12, None)]
+
+    def test_easyocr_unavailable_uses_tesseract(self):
+        engine, tess, easy = routed_engine(FakeRouter("merge"), easy_available=False)
+        assert engine.recognize(WHITE) == "hello plain"
+        assert engine.router.calls == []
+        easy.recognize_detailed.assert_not_called()
+
+    def test_easyocr_failure_falls_back_to_tesseract(self):
+        engine, tess, easy = routed_engine(FakeRouter("easyocr"))
+        easy.recognize_detailed.side_effect = RuntimeError("model download failed")
+        assert engine.recognize(WHITE) == "hello plain"
+
+    def test_easyocr_failure_in_cascade_keeps_the_tesseract_text(self):
+        engine, tess, easy = routed_engine(FakeRouter("merge", policy="cascade"))
+        easy.recognize_detailed.side_effect = RuntimeError("cuda out of memory")
+        assert engine.recognize(WHITE) == "hello wor1d"
+        tess.recognize.assert_not_called()
+
+    def test_router_unavailable_uses_tesseract(self):
+        engine, tess, _ = routed_engine(FakeRouter("merge", available=False))
+        assert engine.recognize(WHITE) == "hello plain"
+        assert engine.router.calls == []
+
+    def test_tesseract_unavailable_uses_easyocr(self):
+        engine, _, easy = routed_engine(FakeRouter("tesseract"), tess_available=False)
+        assert engine.recognize(WHITE) == "hello world"
+        assert engine.router.calls == []
+
+    def test_non_adaptive_ensemble_does_not_consult_the_router(self):
+        router = FakeRouter("tesseract")
+        engine, tess, easy = routed_engine(router)
+        engine._routing_enabled = False
+        assert engine.recognize(WHITE) == "hello world"
+        assert router.calls == []

@@ -15,8 +15,9 @@ CONFIG_FIELD_COMMENTS: dict[str, str] = {
     "ocr_model_path": "Directory for EasyOCR model files (leave blank for default)",
     "ocr_language": "Tesseract language code(s), e.g. eng, rus, eng+rus",
     "ocr_confidence_threshold": "Minimum OCR confidence to accept a result (0.0–1.0)",
-    "adaptive_ensemble": "Auto-select fast/ensemble mode based on image quality",
-    "ab_test_probability": "Probability (0.0–1.0) to run both strategies for model training",
+    "adaptive_ensemble": "Choose Tesseract, EasyOCR or their merge per image",
+    "router_time_weight": "Error-per-second trade-off for that choice "
+    "(blank = benchmarked default, 0 = accuracy only)",
     "max_image_size": "Resize images larger than this (pixels) before OCR",
     "use_gpu": "Use GPU acceleration for EasyOCR when available (requires CUDA)",
     "notification_enabled": "Show desktop notification after each capture",
@@ -42,8 +43,8 @@ class Config:
     ocr_model_path: Optional[Path] = None
     ocr_language: str = "eng"  # Language code (eng, rus, eng+rus, etc.)
     ocr_confidence_threshold: float = 0.6
-    adaptive_ensemble: bool = True  # Automatically choose fast/ensemble mode based on image quality
-    ab_test_probability: float = 0.15  # Run both strategies to collect training data
+    adaptive_ensemble: bool = True  # Choose the OCR action per image
+    router_time_weight: Optional[float] = None  # None: the default shipped with the router table
 
     # Performance
     max_image_size: int = 4096
@@ -118,18 +119,20 @@ class Config:
             )
             self.history_size = 50
 
-        try:
-            ab_ok = 0.0 <= float(self.ab_test_probability) <= 1.0
-        except (TypeError, ValueError):
-            ab_ok = False
-        if not ab_ok:
-            logger.warning(
-                f"Invalid ab_test_probability={self.ab_test_probability!r}; "
-                "must be a number in [0, 1]. Resetting to 0.15."
-            )
-            self.ab_test_probability = 0.15
-        else:
-            self.ab_test_probability = float(self.ab_test_probability)
+        if self.router_time_weight is not None:
+            try:
+                weight = float(self.router_time_weight)
+                weight_ok = weight >= 0.0 and not isinstance(self.router_time_weight, bool)
+            except (TypeError, ValueError):
+                weight_ok = False
+            if weight_ok:
+                self.router_time_weight = weight
+            else:
+                logger.warning(
+                    f"Invalid router_time_weight={self.router_time_weight!r}; "
+                    "must be a non-negative number. Using the default."
+                )
+                self.router_time_weight = None
 
     @classmethod
     def _profiles_dir(cls, config_path: Path) -> Path:
@@ -202,6 +205,7 @@ class Config:
             "show_confidence_overlay",
             "context_aware_detection",
             "num_threads",
+            "ab_test_probability",
         ]
         for param in deprecated:
             data.pop(param, None)
