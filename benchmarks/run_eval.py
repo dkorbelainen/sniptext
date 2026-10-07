@@ -107,9 +107,16 @@ def build_row(sample: dict, image: Image.Image, outputs: dict, analyzer: ImageAn
 _ANALYZER = ImageAnalyzer()
 
 
-def _limit_threads() -> None:
+def _quiet() -> None:
+    # The app logs at INFO; per-call debug lines would be timed along with the OCR.
+    logger.remove()
+    logger.add(sys.stderr, level="WARNING")
+
+
+def _init_worker() -> None:
     # One Tesseract thread per worker: the workers are the parallelism.
     os.environ["OMP_THREAD_LIMIT"] = "1"
+    _quiet()
 
 
 def _accuracy_row(sample: dict) -> dict:
@@ -132,7 +139,7 @@ def _read_partial(path: Path, resume: bool) -> dict:
 def accuracy_pass(samples: list[dict], workers: int, resume: bool) -> None:
     done = _read_partial(_PARTIAL, resume)
     todo = [s for s in samples if Path(s["path"]).name not in done]
-    with open(_PARTIAL, "a") as partial, Pool(workers, initializer=_limit_threads) as pool:
+    with open(_PARTIAL, "a") as partial, Pool(workers, initializer=_init_worker) as pool:
         for count, row in enumerate(pool.imap_unordered(_accuracy_row, todo, chunksize=4), 1):
             partial.write(json.dumps(row) + "\n")
             partial.flush()
@@ -217,9 +224,7 @@ def main() -> None:
     parser.add_argument("--resume", action="store_true", help="continue the partial file")
     args = parser.parse_args()
 
-    # The app logs at INFO; per-call debug lines would be timed along with the OCR.
-    logger.remove()
-    logger.add(sys.stderr, level="WARNING")
+    _quiet()
     samples = collect_samples(args.seed, args.sroie_limit)
     if args.max_images:
         samples = samples[: args.max_images]
