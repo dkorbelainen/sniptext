@@ -1,59 +1,48 @@
-"""Render synthetic screen-text images with known ground truth.
+"""Render screen-text images with known ground truth.
 
-Domain-matched stand-in for SnipText's real input: clean digital text in
-light/dark themes, optionally degraded to induce engine disagreement (the
-regime where ensemble merging pays off).
+Each text is rendered several times with different fonts, sizes, colour schemes
+and degradations. Splits are assigned per text, so a text never appears on both
+sides of a split. Two font families are held out for an unseen-font slice.
 """
 
+from __future__ import annotations
+
+import io
 import random
 import subprocess
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import List
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageStat
 
-# Corpora ---------------------------------------------------------------------
-_PROSE = [
-    "The quick brown fox jumps over the lazy dog near the river bank.",
-    "Software engineers should write code that reads like prose whenever possible.",
-    "Performance matters, but clarity and correctness must always come first.",
-    "Please review the attached document and send your feedback before Friday.",
-    "Machine learning models require careful evaluation on held out data.",
-    "The conference will take place in the main hall on the second floor.",
-    "Remember to back up your files before installing the latest update.",
-    "A good abstraction hides complexity without removing necessary control.",
-]
-_CODE = [
-    "def merge(a, b):\n    return sorted(set(a) | set(b))",
-    "for i in range(len(items)):\n    total += items[i].price",
-    "class Parser:\n    def __init__(self, path):\n        self.path = path",
-    "result = [x * 2 for x in values if x > 0]",
-    "if status == 200:\n    return response.json()\nelse:\n    raise Error(status)",
-    "import numpy as np\narr = np.zeros((3, 4), dtype=float)",
-]
-_UI = [
-    "File  Edit  View  Help\nNew Project    Ctrl+N\nSave As        Ctrl+S",
-    "Settings\nEnable notifications\nDark mode\nAuto save every 5 minutes",
-    "Login\nUsername\nPassword\nRemember me    Sign in",
-]
+from benchmarks.corpus import TextItem
 
-_CONTENT = {"prose": _PROSE, "code": _CODE, "ui": _UI}
+SEEN_FONTS = (
+    "DejaVu Sans",
+    "DejaVu Sans Mono",
+    "Liberation Sans",
+    "Liberation Mono",
+    "Liberation Serif",
+    "Noto Sans",
+    "Noto Serif",
+    "JetBrains Mono",
+)
+UNSEEN_FONTS = ("Open Sans", "Noto Sans Mono")
 
-# Themes: (background, foreground) RGB.
-_THEMES = {
+# (background, foreground) RGB.
+THEMES = {
     "light": ((250, 250, 250), (20, 20, 20)),
     "dark": ((30, 30, 30), (212, 212, 212)),
+    "solarized_light": ((253, 246, 227), (101, 123, 131)),
+    "solarized_dark": ((0, 43, 54), (131, 148, 150)),
+    "terminal": ((12, 12, 12), (51, 255, 51)),
+    "paper": ((244, 236, 216), (59, 47, 47)),
 }
 
-_FONT_FAMILIES = ["DejaVu Sans Mono", "Noto Sans Mono", "Liberation Mono"]
-
-
-@lru_cache(maxsize=8)
-def _font_path(family: str) -> str:
-    return subprocess.check_output(["fc-match", "-f", "%{file}", family]).decode().strip()
+RENDERS_PER_TEXT = 4
+_SPLIT_SHARES = (("train", 0.6), ("val", 0.2), ("test", 0.2))
 
 
 @dataclass
@@ -61,80 +50,162 @@ class Sample:
     path: Path
     gt: str
     source: str
-    theme: str
-    difficulty: str
+    split: str
+    text_id: str
+    lang: str
     content: str
+    font: str
+    font_size: int
+    theme: str
+    degradation: str
 
 
-def _render(text: str, theme: str, font_size: int) -> Image.Image:
-    bg, fg = _THEMES[theme]
-    font = ImageFont.truetype(_font_path(_FONT_FAMILIES[0]), font_size)
-    pad = 24
+@lru_cache(maxsize=None)
+def _font_file(family: str) -> str:
+    """Path of the font file for *family*; an error if fontconfig would substitute another."""
+    out = subprocess.check_output(["fc-match", "-f", "%{family}|%{file}", family]).decode()
+    matched, _, path = out.partition("|")
+    if family.lower() not in [name.strip().lower() for name in matched.split(",")]:
+        raise RuntimeError(f"font family not installed: {family} (fontconfig offers {matched})")
+    return path.strip()
+
+
+def _load_font(family: str, size: int):
+    return ImageFont.truetype(_font_file(family), size)
+
+
+def render(text: str, family: str, size: int, theme: str) -> Image.Image:
+    """Draw *text* line by line on a solid background."""
+    background, foreground = THEMES[theme]
+    font = _load_font(family, size)
     lines = text.split("\n")
-    # Measure block size.
-    dummy = Image.new("RGB", (10, 10))
-    d = ImageDraw.Draw(dummy)
-    widths, height = [], 0
-    line_h = font_size + 8
-    for ln in lines:
-        bbox = d.textbbox((0, 0), ln or " ", font=font)
-        widths.append(bbox[2] - bbox[0])
-        height += line_h
-    w = max(widths) + 2 * pad
-    h = height + 2 * pad
-    img = Image.new("RGB", (w, h), bg)
-    draw = ImageDraw.Draw(img)
-    y = pad
-    for ln in lines:
-        draw.text((pad, y), ln, font=font, fill=fg)
-        y += line_h
-    return img
+    line_height = size + max(4, round(size * 0.35))
+    pad = 16
+    probe = ImageDraw.Draw(Image.new("RGB", (8, 8)))
+    widths = [probe.textbbox((0, 0), line or " ", font=font)[2] for line in lines]
+    image = Image.new(
+        "RGB", (max(widths) + 2 * pad, line_height * len(lines) + 2 * pad), background
+    )
+    draw = ImageDraw.Draw(image)
+    for row, line in enumerate(lines):
+        draw.text((pad, pad + row * line_height), line, font=font, fill=foreground)
+    return image
 
 
-# Degradation tiers: (blur radius range, gaussian noise std range).
-# "heavy" pushes the engines into disagreement, the regime where ensemble
-# merging wins — needed to produce enough positive selector labels.
-_DEGRADE = {
-    "medium": ((0.6, 1.1), (14, 24)),
-    "heavy": ((1.0, 1.4), (24, 34)),
+def _blur(image: Image.Image, rng: random.Random) -> Image.Image:
+    return image.filter(ImageFilter.GaussianBlur(radius=rng.uniform(0.4, 1.6)))
+
+
+def _noise(image: Image.Image, rng: random.Random) -> Image.Image:
+    pixels = np.asarray(image).astype(np.float32)
+    noise = np.random.default_rng(rng.randint(0, 2**31 - 1)).normal(
+        0.0, rng.uniform(6.0, 34.0), pixels.shape
+    )
+    return Image.fromarray(np.clip(pixels + noise, 0, 255).astype(np.uint8))
+
+
+def _jpeg(image: Image.Image, rng: random.Random) -> Image.Image:
+    buffer = io.BytesIO()
+    image.save(buffer, "JPEG", quality=rng.randint(8, 45))
+    buffer.seek(0)
+    return Image.open(buffer).convert("RGB")
+
+
+def _rescale(image: Image.Image, rng: random.Random) -> Image.Image:
+    factor = rng.uniform(0.4, 0.8)
+    width, height = image.size
+    small = image.resize(
+        (max(8, int(width * factor)), max(8, int(height * factor))), Image.BILINEAR
+    )
+    return small.resize((width, height), Image.BILINEAR)
+
+
+def _lowcontrast(image: Image.Image, rng: random.Random) -> Image.Image:
+    mean = tuple(int(channel) for channel in ImageStat.Stat(image).mean)
+    return Image.blend(image, Image.new("RGB", image.size, mean), rng.uniform(0.45, 0.8))
+
+
+DEGRADATIONS = {
+    "blur": _blur,
+    "noise": _noise,
+    "jpeg": _jpeg,
+    "rescale": _rescale,
+    "lowcontrast": _lowcontrast,
 }
 
 
-def _degrade(img: Image.Image, rng: random.Random, level: str) -> Image.Image:
-    """Apply noise + blur at *level* so engines make differing errors."""
-    (blur_lo, blur_hi), (noise_lo, noise_hi) = _DEGRADE[level]
-    img = img.filter(ImageFilter.GaussianBlur(radius=rng.uniform(blur_lo, blur_hi)))
-    arr = np.asarray(img).astype(np.float32)
-    noise = np.random.default_rng(rng.randint(0, 2**31)).normal(
-        0, rng.uniform(noise_lo, noise_hi), arr.shape
-    )
-    arr = np.clip(arr + noise, 0, 255).astype(np.uint8)
-    return Image.fromarray(arr)
+def _pick_degradations(rng: random.Random) -> tuple:
+    """None for a quarter of images, one for half, two for a quarter."""
+    roll = rng.random()
+    count = 0 if roll < 0.25 else 1 if roll < 0.75 else 2
+    return tuple(rng.sample(sorted(DEGRADATIONS), count))
 
 
-def generate(out_dir: Path, n_per_combo: int = 6, seed: int = 42) -> List[Sample]:
-    """Render the synthetic corpus into *out_dir*. Returns sample metadata."""
+def assign_splits(items: list[TextItem], seed: int = 42) -> dict[str, str]:
+    """Text id to split, 60/20/20, stratified by language and content type."""
+    groups: dict[tuple, list[str]] = {}
+    for item in items:
+        groups.setdefault((item.lang, item.content), []).append(item.text_id)
+    splits: dict[str, str] = {}
+    for key in sorted(groups):
+        ids = sorted(groups[key])
+        random.Random(f"{seed}:{key}").shuffle(ids)
+        start = 0
+        for position, (name, share) in enumerate(_SPLIT_SHARES):
+            last = position == len(_SPLIT_SHARES) - 1
+            end = len(ids) if last else start + round(len(ids) * share)
+            for text_id in ids[start:end]:
+                splits[text_id] = name
+            start = end
+    return splits
+
+
+def generate(out_dir: Path, items: list[TextItem], seed: int = 42) -> list[Sample]:
+    """Render the corpus into *out_dir* and return its metadata."""
+    out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    rng = random.Random(seed)
-    samples: List[Sample] = []
-    idx = 0
-    for content, texts in _CONTENT.items():
-        for theme in _THEMES:
-            for difficulty in ("clean", "medium", "heavy"):
-                for _ in range(n_per_combo):
-                    text = rng.choice(texts)
-                    font_size = rng.choice([22, 26, 30])
-                    img = _render(text, theme, font_size)
-                    if difficulty != "clean":
-                        img = _degrade(img, rng, difficulty)
-                    path = out_dir / f"{content}_{theme}_{difficulty}_{idx:04d}.png"
-                    img.save(path)
-                    samples.append(Sample(path, text, "synthetic", theme, difficulty, content))
-                    idx += 1
+    splits = assign_splits(items, seed)
+    samples: list[Sample] = []
+    for item in items:
+        # A per-text generator keeps one text's renders stable when the pool changes.
+        rng = random.Random(f"{seed}:{item.text_id}")
+        split = splits[item.text_id]
+        plans = [(rng.choice(SEEN_FONTS), split) for _ in range(RENDERS_PER_TEXT)]
+        if split == "test":
+            plans += [(family, "unseen_font") for family in UNSEEN_FONTS]
+        for number, (family, sample_split) in enumerate(plans):
+            size = rng.randint(11, 30)
+            theme = rng.choice(sorted(THEMES))
+            names = _pick_degradations(rng)
+            image = render(item.text, family, size, theme)
+            for name in names:
+                image = DEGRADATIONS[name](image, rng)
+            path = out_dir / f"{item.text_id}_{number}.png"
+            image.save(path)
+            samples.append(
+                Sample(
+                    path=path,
+                    gt=item.text,
+                    source="synthetic",
+                    split=sample_split,
+                    text_id=item.text_id,
+                    lang=item.lang,
+                    content=item.content,
+                    font=family,
+                    font_size=size,
+                    theme=theme,
+                    degradation="+".join(names) or "none",
+                )
+            )
     return samples
 
 
 if __name__ == "__main__":
+    from benchmarks.corpus import load_items
+
     root = Path(__file__).resolve().parent / "data" / "synthetic"
-    s = generate(root)
-    print(f"Generated {len(s)} synthetic samples in {root}")
+    made = generate(root, load_items())
+    by_split: dict[str, int] = {}
+    for sample in made:
+        by_split[sample.split] = by_split.get(sample.split, 0) + 1
+    print(len(made), by_split)
