@@ -177,7 +177,7 @@ class ConfidenceModel:
         """
         self._ensure_initialized()
 
-        features = self.analyzer.extract_features(image)
+        features = self.analyzer.extract_features(image)[:_FEATURE_COUNT]
 
         contrast = features[1]
         sharpness = features[2]
@@ -257,6 +257,7 @@ class ConfidenceModel:
             fast_result: Dict with keys 'text', 'quality_score', optional 'confidence'
             ensemble_result: Dict with keys 'text', 'quality_score', optional 'confidence'
         """
+        features = np.asarray(features)[:_FEATURE_COUNT]
         # Handle legacy API
         if strategy is not None and success is not None:
             # Convert legacy call to new format
