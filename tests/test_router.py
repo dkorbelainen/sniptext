@@ -197,3 +197,24 @@ class TestRouter:
         r = Router(make_table(tmp_path / "t.csv.gz"), cache_dir=tmp_path / "c")
         assert not r.available
         assert r.choose(np.array([0.9, 0.5])) == "tesseract"
+
+
+class TestShippedTable:
+    def test_shipped_table_matches_the_analyzer(self, tmp_path):
+        from PIL import Image
+
+        from sniptext.analyzer import FEATURE_NAMES, ImageAnalyzer
+
+        table = read_table(router._TABLE_PATH)
+        expected = list(FEATURE_NAMES)
+        if table.meta["policy"] == "cascade":
+            expected += list(router.CONF_STAT_NAMES)
+        assert list(table.feature_names) == expected
+        assert table.meta["tesseract_call"] in ("detailed", "plain")
+        assert table.meta["time_weight"] >= 0.0
+        assert len(table.X) > 1000
+
+        r = Router(cache_dir=tmp_path)
+        assert r.available
+        features = ImageAnalyzer().extract_features(Image.new("RGB", (400, 120), (250, 250, 250)))
+        assert r.choose(features, [[0.9, 0.8]]) in ACTIONS
