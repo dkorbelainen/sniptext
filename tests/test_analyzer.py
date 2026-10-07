@@ -19,72 +19,109 @@ def make_image(width, height, value=150, mode="RGB"):
     return Image.fromarray(np.full((height, width, 3), value, dtype=np.uint8))
 
 
+def text_image(theme="light", font_size=20, width=640, height=200):
+    """Render a few lines of text with Pillow's built-in scalable font."""
+    from PIL import ImageDraw, ImageFont
+
+    bg, fg = (
+        ((250, 250, 250), (20, 20, 20)) if theme == "light" else ((30, 30, 30), (212, 212, 212))
+    )
+    img = Image.new("RGB", (width, height), bg)
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default(font_size)
+    y = 12
+    while y < height - font_size - 8:
+        draw.text((12, y), "The quick brown fox jumps over 0123456789", font=font, fill=fg)
+        y += font_size + 10
+    return img
+
+
 class TestExtractFeatures:
-    def test_returns_seven_features(self, analyzer):
-        img = make_image(300, 100)
-        features = analyzer.extract_features(img)
-        assert len(features) == 7
+    def test_length_matches_feature_names(self, analyzer):
+        from sniptext.analyzer import FEATURE_NAMES
+
+        assert len(FEATURE_NAMES) == 12
+        assert len(set(FEATURE_NAMES)) == 12
+        assert analyzer.extract_features(make_image(300, 100)).shape == (12,)
 
     def test_all_features_in_range(self, analyzer):
-        img = make_image(300, 100)
-        features = analyzer.extract_features(img)
-        for f in features:
-            assert 0.0 <= f <= 1.0
+        for img in (make_image(300, 100), text_image("light"), text_image("dark")):
+            features = analyzer.extract_features(img)
+            assert np.all(np.isfinite(features))
+            assert np.all((features >= 0.0) & (features <= 1.0))
+
+    def test_degenerate_images_give_finite_features(self, analyzer):
+        for size in ((1, 1), (15, 3), (3, 40)):
+            features = analyzer.extract_features(Image.new("RGB", size, (128, 128, 128)))
+            assert features.shape == (12,)
+            assert np.all(np.isfinite(features))
+            assert np.all((features >= 0.0) & (features <= 1.0))
 
     def test_bright_image_high_brightness(self, analyzer):
-        img = make_image(300, 100, value=240)
-        features = analyzer.extract_features(img)
-        assert features[0] > 0.8  # brightness
+        assert analyzer.extract_features(make_image(300, 100, value=240))[0] > 0.8
 
     def test_dark_image_low_brightness(self, analyzer):
-        img = make_image(300, 100, value=20)
-        features = analyzer.extract_features(img)
-        assert features[0] < 0.2
+        assert analyzer.extract_features(make_image(300, 100, value=20))[0] < 0.2
 
-    def test_grayscale_image(self, analyzer):
-        img = make_image(300, 100, mode="L")
-        features = analyzer.extract_features(img)
-        assert len(features) == 7
+    def test_grayscale_and_rgba_inputs(self, analyzer):
+        assert analyzer.extract_features(make_image(300, 100, mode="L")).shape == (12,)
+        rgba = Image.fromarray(np.full((100, 300, 4), 150, dtype=np.uint8), mode="RGBA")
+        assert analyzer.extract_features(rgba).shape == (12,)
 
-    def test_rgba_image(self, analyzer):
-        arr = np.full((100, 300, 4), 150, dtype=np.uint8)
-        img = Image.fromarray(arr, mode="RGBA")
-        features = analyzer.extract_features(img)
-        assert len(features) == 7
+    def test_text_density_is_theme_invariant(self, analyzer):
+        """The old feature counted dark pixels, so a dark theme measured background."""
+        light = analyzer.extract_features(text_image("light"))[5]
+        dark = analyzer.extract_features(text_image("dark"))[5]
+        assert 0.0 < light < 0.5
+        assert abs(light - dark) < 0.03
 
-    def test_text_density_high_for_dark_image(self, analyzer):
-        """Mostly-dark image should have high text_density (many dark pixels)."""
-        img = make_image(300, 100, value=20)
-        features = analyzer.extract_features(img)
-        assert features[5] > 0.8  # text_density
+    def test_text_height_grows_with_font_size(self, analyzer):
+        small = analyzer.extract_features(text_image(font_size=14))[10]
+        large = analyzer.extract_features(text_image(font_size=30))[10]
+        assert large > small > 0.0
 
-    def test_text_density_low_for_white_image(self, analyzer):
-        """Mostly-white image should have low text_density (few dark pixels)."""
-        img = make_image(300, 100, value=240)
-        features = analyzer.extract_features(img)
-        assert features[5] < 0.1  # text_density
+    def test_blur_lowers_sharpness(self, analyzer):
+        from PIL import ImageFilter
+
+        img = text_image()
+        sharp = analyzer.extract_features(img)[2]
+        blurred = analyzer.extract_features(img.filter(ImageFilter.GaussianBlur(1.5)))[2]
+        assert blurred < sharp < 1.0
 
     def test_noise_level_low_for_uniform_image(self, analyzer):
-        """Solid-color image has no high-freq variation — noise should be near 0."""
-        img = make_image(300, 100, value=150)
-        features = analyzer.extract_features(img)
-        assert features[6] < 0.1  # noise_level
+        assert analyzer.extract_features(make_image(300, 100, value=150))[6] < 0.05
 
-    def test_noise_level_high_for_noisy_image(self, analyzer):
-        """Synthetic noisy image should have significantly higher noise_level than a uniform one."""
-        # Baseline: solid-color image
-        uniform_img = make_image(300, 100, value=150)
-        uniform_features = analyzer.extract_features(uniform_img)
+    def test_noise_raises_noise_level(self, analyzer):
+        img = text_image()
+        arr = np.asarray(img).astype(np.float32)
+        noisy = np.clip(arr + np.random.default_rng(0).normal(0, 30, arr.shape), 0, 255)
+        clean_level = analyzer.extract_features(img)[6]
+        noisy_level = analyzer.extract_features(Image.fromarray(noisy.astype(np.uint8)))[6]
+        assert noisy_level > clean_level + 0.1
 
-        # Synthetic noise: random RGB pixels
-        rng = np.random.RandomState(0)
-        noisy_array = rng.randint(0, 256, size=(100, 300, 3), dtype=np.uint8)
-        noisy_img = Image.fromarray(noisy_array, mode="RGB")
-        noisy_features = analyzer.extract_features(noisy_img)
+    def test_jpeg_raises_blockiness(self, analyzer):
+        import io
 
-        # Noise level should be noticeably higher for the noisy image
-        assert noisy_features[6] > uniform_features[6] + 0.2
-        assert noisy_features[6] > 0.3
+        img = text_image()
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=5)
+        buf.seek(0)
+        clean = analyzer.extract_features(img)[11]
+        compressed = analyzer.extract_features(Image.open(buf).convert("RGB"))[11]
+        assert compressed > clean
+
+    def test_extraction_time_bound(self, analyzer):
+        import time
+
+        img = text_image(width=1920, height=1080)
+        analyzer.extract_features(img)
+        # Best of five: a busy machine stalls single runs, a slow path stalls all of them.
+        best = float("inf")
+        for _ in range(5):
+            start = time.perf_counter()
+            analyzer.extract_features(img)
+            best = min(best, time.perf_counter() - start)
+        assert best < 0.5
 
 
 class TestSuggestPsmMode:

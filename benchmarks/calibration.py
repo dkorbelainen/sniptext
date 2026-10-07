@@ -12,7 +12,7 @@ from typing import Dict
 
 import numpy as np
 from sklearn.isotonic import IsotonicRegression
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import GroupShuffleSplit
 
 _WORD_CONF = Path(__file__).resolve().parent / "word_conf.json"
 
@@ -37,23 +37,41 @@ def _ece(conf: np.ndarray, correct: np.ndarray, n_bins: int = 10) -> float:
 def _domain(rows) -> Dict[str, float]:
     conf = np.array([r["conf"] for r in rows], dtype=float)
     y = np.array([r["correct"] for r in rows], dtype=int)
-    accuracy = float(y.mean())
-    mean_conf = float(conf.mean())
+    images = np.array([r["image"] for r in rows])
     res = {
         "n": len(rows),
-        "accuracy": accuracy,
-        "mean_conf": mean_conf,
+        "accuracy": float(y.mean()),
+        "mean_conf": float(conf.mean()),
         "ece_raw": _ece(conf, y),
         "ece_cal": float("nan"),
     }
-    # Need both classes to fit and to stratify a held-out split.
-    if len(np.unique(y)) < 2:
+    if len(np.unique(images)) < 2:
         return res
-    c_tr, c_te, y_tr, y_te = train_test_split(conf, y, test_size=0.3, random_state=42, stratify=y)
-    iso = IsotonicRegression(out_of_bounds="clip").fit(c_tr, y_tr)
-    res["ece_raw"] = _ece(c_te, y_te)
-    res["ece_cal"] = _ece(iso.predict(c_te), y_te)
+    # Words of one image share blur, noise and font, so an image stays on one side.
+    splitter = GroupShuffleSplit(n_splits=1, test_size=0.3, random_state=42)
+    fit_rows, held_out = next(splitter.split(conf, y, images))
+    if len(np.unique(y[fit_rows])) < 2:
+        return res
+    iso = IsotonicRegression(out_of_bounds="clip").fit(conf[fit_rows], y[fit_rows])
+    res["ece_raw"] = _ece(conf[held_out], y[held_out])
+    res["ece_cal"] = _ece(iso.predict(conf[held_out]), y[held_out])
     return res
+
+
+def reliability(rows, n_bins: int = 10) -> list:
+    """Mean confidence, accuracy and count per non-empty equal-width confidence bin."""
+    conf = np.array([r["conf"] for r in rows], dtype=float)
+    y = np.array([r["correct"] for r in rows], dtype=int)
+    index = np.digitize(conf, np.linspace(0.0, 1.0, n_bins + 1)[1:-1])
+    return [
+        {
+            "conf": float(conf[index == b].mean()),
+            "accuracy": float(y[index == b].mean()),
+            "n": int((index == b).sum()),
+        }
+        for b in range(n_bins)
+        if (index == b).any()
+    ]
 
 
 def calibrate() -> Dict[str, Dict[str, float]]:

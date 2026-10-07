@@ -8,7 +8,7 @@ Screen text extractor with OCR and spell correction for Arch Linux.
 
 ## Features
 
-- **Adaptive OCR**: Automatic mode selection for speed and accuracy
+- **Adaptive OCR**: picks Tesseract, EasyOCR or their merge per image; measured in [docs/benchmark.md](docs/benchmark.md)
 - **Multi-language**: 100+ languages via Tesseract (English, Russian, Greek, Math symbols, etc.)
 - **Spell correction**: Automatic text correction for better results
 - **Works everywhere**: Wayland and X11 support
@@ -68,13 +68,13 @@ Key settings:
 ```yaml
 ocr_engine: ensemble        # ensemble, tesseract, or easyocr
 ocr_language: eng           # See LANGUAGES.md for codes
-adaptive_ensemble: true     # Auto quality-based mode selection
+adaptive_ensemble: true     # Choose the OCR engine per image
 enable_text_correction: true
 notification_enabled: true
 use_gpu: true               # CUDA acceleration
 ```
 
-**Adaptive Ensemble:** Automatically uses fast mode for clear images, accurate mode for difficult ones.
+**Adaptive OCR:** a small model predicts the error rate of each engine for the captured image and picks the engine with the best accuracy for its time. Set `router_time_weight: 0` to ignore time. Method and results: [docs/benchmark.md](docs/benchmark.md).
 
 **Note:** Optional features (spell correction, EasyOCR, ML analysis) are auto-detected when installed.
 
@@ -85,6 +85,6 @@ All optional dependencies are auto-detected. Install to enable features:
 
 ```bash
 yay -S python-symspellpy      # Spell correction (English)
-yay -S python-scikit-learn    # Quality analysis
+yay -S python-scikit-learn    # Engine routing
 yay -S python-easyocr         # High-accuracy OCR (slower, GPU recommended)
 ```

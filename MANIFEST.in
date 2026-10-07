@@ -8,5 +8,6 @@ include man/sniptext.1
 include org.sniptext.SnipText.json
 include org.sniptext.SnipText.desktop
 recursive-include sniptext *.py
+recursive-include sniptext/data *.csv.gz
 global-exclude __pycache__
 global-exclude *.py[co]

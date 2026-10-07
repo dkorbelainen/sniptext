@@ -15,8 +15,8 @@ existing image file via \fB\-\-file\fR.
 .PP
 Three OCR backends are supported: \fBtesseract\fR (fast, lightweight),
 \fBeasyocr\fR (higher accuracy), and \fBensemble\fR (default — runs both and
-merges results).  The adaptive mode (enabled by default) automatically selects
-the fastest strategy based on image quality.
+merges results).  The adaptive mode (enabled by default) chooses Tesseract, EasyOCR or their
+merge for each image from a model of their error rates.
 .SH OPTIONS
 .SS General
 .TP
