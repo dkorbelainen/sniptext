@@ -286,18 +286,10 @@ class OCREngine:
         }
         self.backend = self._initialize_backend()
 
-        self.router = None
-        self._analyzer = ImageAnalyzer()
-        self._routing_enabled = (
-            self.config.adaptive_ensemble and self.config.ocr_engine == "ensemble"
-        )
-
         backend_name = type(self.backend).__name__.replace("Backend", "").lower()
         logger.info(f"OCR Engine initialized with backend: {backend_name}")
         logger.info(f"OCR Language: {config.ocr_language}")
         logger.info(f"Text Correction: {config.enable_text_correction}")
-        if self._routing_enabled:
-            logger.info("Adaptive ensemble: enabled")
 
     def _initialize_backend(self) -> OCRBackend:
         """Initialize the appropriate OCR backend."""
@@ -327,17 +319,9 @@ class OCREngine:
         """Get list of available backend names."""
         return [name for name, backend in self.backends.items() if backend.is_available()]
 
-    def _get_router(self):
-        """Create the router on first use; it loads its table and model lazily."""
-        if self.router is None:
-            from .router import Router
-
-            self.router = Router(time_weight=self.config.router_time_weight)
-        return self.router
-
     def recognize(self, image: np.ndarray) -> str:
         """
-        Recognize text from image, choosing the OCR action per image when adaptive.
+        Recognize text from image.
 
         Args:
             image: Input image (numpy array)
@@ -348,9 +332,7 @@ class OCREngine:
         try:
             pil_image = self._prepare_image(image)
 
-            if self._routing_enabled:
-                text, mode = self._recognize_routed(pil_image)
-            elif self.config.ocr_engine == "ensemble":
+            if self.config.ocr_engine == "ensemble":
                 text, mode = self._recognize_ensemble(pil_image), "ensemble"
             else:
                 text, mode = self.backend.recognize(pil_image), "single"
@@ -416,55 +398,6 @@ class OCREngine:
         logger.info(f"Ensemble combined {len(results)} results")
 
         return combined
-
-    def _recognize_routed(self, image: Image.Image) -> tuple[str, str]:
-        """Run the action the router picks for this image. Returns (text, action)."""
-        tesseract = self.backends["tesseract"]
-        easyocr = self.backends["easyocr"]
-        if not tesseract.is_available():
-            return easyocr.recognize_detailed(image)[0], "easyocr"
-        router = self._get_router()
-        if not router.available:
-            return tesseract.recognize(image), "tesseract"
-
-        features = self._analyzer.extract_features(image)
-        tess_result = None
-        if router.policy == "cascade":
-            tess_result = tesseract.recognize_detailed(image)
-            action = router.choose(features, tess_result[1])
-        else:
-            action = router.choose(features)
-        logger.debug(f"Router action: {action}")
-
-        if action == "tesseract":
-            if tess_result is not None:
-                return tess_result[0], action
-            if router.tesseract_call == "plain":
-                return tesseract.recognize(image), action
-            return tesseract.recognize_detailed(image)[0], action
-
-        # Asked only now: the check imports torch, seconds a Tesseract capture must not pay.
-        easy_result = None
-        if easyocr.is_available():
-            try:
-                easy_result = easyocr.recognize_detailed(image)
-            except Exception as e:
-                logger.warning(f"EasyOCR failed ({e}); using Tesseract")
-        if easy_result is None:
-            if tess_result is not None:
-                return tess_result[0], "tesseract"
-            return tesseract.recognize(image), "tesseract"
-        if action == "easyocr":
-            return easy_result[0], action
-
-        if tess_result is None:
-            tess_result = tesseract.recognize_detailed(image)
-        from .ensemble import EnsembleOCR
-
-        merged = EnsembleOCR().combine_results(
-            [tess_result[0], easy_result[0]], [tess_result[1], easy_result[1]]
-        )
-        return merged, action
 
     def _prepare_image(self, image: "np.ndarray | Image.Image") -> Image.Image:
         """
