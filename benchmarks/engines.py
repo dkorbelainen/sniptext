@@ -1,31 +1,27 @@
-"""Thin wrappers running each OCR variant on a single image."""
+"""Run the three router actions on one image, with timing."""
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Dict, List, Tuple
 
 from PIL import Image
 
 from sniptext.config import Config
-from sniptext.ensemble import EnsembleOCR, post_process_text
+from sniptext.ensemble import EnsembleOCR
 from sniptext.ocr import EasyOCRBackend, TesseractBackend
 
 
 @dataclass
 class RunResult:
-    """Per-image OCR outputs plus raw per-word confidences for calibration."""
+    """Texts per action, per-line word confidences per engine, seconds per engine call."""
 
-    texts: Dict[str, str]
-    word_conf: Dict[str, List[Tuple[str, float]]]
-    # Detailed (text, per-line word confidences) per engine, persisted so the
-    # confidence-weighted merge can be replayed offline with calibrated scores
-    # without re-running OCR.
-    detailed: Dict[str, Tuple[str, List[List[float]] | None]]
+    texts: dict
+    confs: dict
+    times: dict
 
 
-def _flat_word_conf(text: str, confs: List[List[float]] | None) -> List[Tuple[str, float]]:
+def _flat_word_conf(text: str, confs: list[list[float]] | None) -> list[tuple[str, float]]:
     """Flatten detailed (text, per-line word confidences) into (word, conf) pairs.
 
     recognize_detailed builds each line as " ".join(words) with a parallel
@@ -41,45 +37,33 @@ def _flat_word_conf(text: str, confs: List[List[float]] | None) -> List[Tuple[st
 class EngineRunner:
     """Holds initialised backends so models load once across the corpus."""
 
-    def __init__(self, config: Config, language: str = "eng"):
-        self.config = config
-        self.language = language
+    def __init__(self, config: Config):
         self.tess = TesseractBackend(config)
         self.easy = EasyOCRBackend(config)
         self.ensemble = EnsembleOCR()
 
-    def run_all(self, image_path: Path) -> RunResult:
-        image = Image.open(image_path).convert("RGB")
-        # Canonical path = production fast path (tesseract image_to_string).
-        # cer_tesseract, the ensemble accuracy table and the oracle label all
-        # derive from these, so they must match what the app actually runs.
-        tess_text = self.tess.recognize(image)
-        easy_text = self.easy.recognize(image)
-        ensemble_text = self.ensemble.combine_results([tess_text, easy_text])
-        corrected = post_process_text(ensemble_text, language=self.language, enable_correction=True)
+    def run_all(self, image: Image.Image) -> RunResult:
+        """Same calls, in the same order, as OCREngine makes for each action."""
+        start = time.perf_counter()
+        tess_plain = self.tess.recognize(image)
+        t_plain = time.perf_counter() - start
 
-        # Confidence experiment, isolated on the detailed (per-word-confidence)
-        # outputs: both merges run over identical detailed inputs so the only
-        # difference is heuristic vs confidence-weighted disagreement handling.
-        tess_d, tess_conf = self.tess.recognize_detailed(image)
-        easy_d, easy_conf = self.easy.recognize_detailed(image)
-        ensemble_det_heur = self.ensemble.combine_results([tess_d, easy_d])
-        ensemble_det_conf = self.ensemble.combine_results([tess_d, easy_d], [tess_conf, easy_conf])
+        start = time.perf_counter()
+        tess_text, tess_conf = self.tess.recognize_detailed(image)
+        t_tess = time.perf_counter() - start
+
+        start = time.perf_counter()
+        easy_text, easy_conf = self.easy.recognize_detailed(image)
+        t_easy = time.perf_counter() - start
+
+        merged = self.ensemble.combine_results([tess_text, easy_text], [tess_conf, easy_conf])
         return RunResult(
             texts={
+                "tesseract_plain": tess_plain,
                 "tesseract": tess_text,
                 "easyocr": easy_text,
-                "ensemble": ensemble_text,
-                "ensemble_corrected": corrected,
-                "ensemble_det_heur": ensemble_det_heur,
-                "ensemble_det_conf": ensemble_det_conf,
+                "merge": merged,
             },
-            word_conf={
-                "tesseract": _flat_word_conf(tess_d, tess_conf),
-                "easyocr": _flat_word_conf(easy_d, easy_conf),
-            },
-            detailed={
-                "tesseract": (tess_d, tess_conf),
-                "easyocr": (easy_d, easy_conf),
-            },
+            confs={"tesseract": tess_conf, "easyocr": easy_conf},
+            times={"tesseract_plain": t_plain, "tesseract": t_tess, "easyocr": t_easy},
         )
