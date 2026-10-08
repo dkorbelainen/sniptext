@@ -1,6 +1,6 @@
 # Tesseract pipeline router benchmark
 
-Generated: 2026-10-08. Commit: `ded56a7`. Tesseract runs with `eng+rus`.
+Generated: 2026-10-08. Commit: `1b0dcd3`. Tesseract runs with `eng+rus`.
 
 ## Task
 
