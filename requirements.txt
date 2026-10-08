@@ -2,9 +2,4 @@
 #
 # Install for development:
 #   pip install -e ".[dev]"
-#
-# Optional extras:
-#   pip install -e ".[correction]"   - symspellpy spell correction
-#   pip install -e ".[sklearn]"      - scikit-learn confidence model
-#   pip install -e ".[easyocr]"      - EasyOCR backend (~500MB)
 -e .

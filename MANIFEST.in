@@ -2,11 +2,7 @@ include README.md
 include LICENSE
 include requirements.txt
 include sniptext.desktop
-include quick-ocr.sh
-include build-flatpak.sh
 include man/sniptext.1
-include org.sniptext.SnipText.json
-include org.sniptext.SnipText.desktop
 recursive-include sniptext *.py
 recursive-include sniptext/data *.json
 global-exclude __pycache__
