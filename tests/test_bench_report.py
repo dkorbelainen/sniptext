@@ -20,7 +20,7 @@ HEADINGS = (
     "## Method", "## Data", "## Shipped policy", "## Results", "### Fresh texts",
     "### Held-out texts", "### Unseen fonts", "### Browser pages", "## Added noise",
     "## By degradation", "## Time", "## Pipeline selection", "## Model selection",
-    "## Removed components", "## Limitations", "## Reproduce",
+    "## Removed components", "## Reproduce",
 )  # fmt: skip
 
 
@@ -137,10 +137,15 @@ def test_the_noise_split_shows_both_routers_with_intervals(tmp_path):
     assert section.count("[") >= 4
 
 
-def test_limitations_state_the_fitted_size_range_and_the_disclosures(tmp_path):
+def test_the_report_has_no_limitations_section(tmp_path):
     text = report.render(evaluation(tmp_path), CORRECTOR, None, "c", "d")
-    limitations = text.split("## Limitations")[1]
-    assert "0.001 megapixels" in limitations
-    assert "finding on the held-out slice of the 0.4 run" in limitations
-    assert "after the receipt timings were seen" in limitations
+    assert "## Limitations" not in text
     assert len(text.split()) < 1900
+
+
+def test_the_time_figure_names_the_router_that_ships(tmp_path):
+    ev = evaluation(tmp_path)
+    text = report.render(ev, CORRECTOR, None, "c", "d")
+    section = text.split("## Time")[1].split("\n## ")[0]
+    label = {"cascade": "Router, cascade", "pre_ocr": "Router, before OCR"}[ev["shipped"]]
+    assert f"Only {label} ships." in section

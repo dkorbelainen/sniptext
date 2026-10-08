@@ -43,7 +43,7 @@ Benchmark: [docs/benchmark.md](docs/benchmark.md).
 |---|---|---|
 | `ocr_language` | `eng` | Tesseract language codes, joined with `+` |
 | `routing` | `true` | Choose the pipeline per image; `false` runs only the default one |
-| `router_time_weight` | blank | CER traded per second; blank uses the benchmarked value, `0` ignores time |
+| `router_time_weight` | blank | Higher runs the second pipeline less often; blank uses the benchmarked value, `0` ignores time |
 | `max_image_size` | `4096` | Larger images are reduced to this side before OCR |
 | `notification_enabled` | `true` | Desktop notification after a capture |
 | `history_enabled` | `true` | Keep captured texts for `--history` |

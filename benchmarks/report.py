@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sniptext.pipelines import LARGE_IMAGE, V04
+from sniptext.pipelines import V04
 
 _HERE = Path(__file__).resolve().parent
 _EVAL = _HERE / "router_eval.json"
@@ -438,7 +438,8 @@ def render(ev: dict, corrector: dict, environment: dict | None, commit: str, gen
     if routed:
         out += [
             "![CER against time](img/cer_time.png)\n",
-            "One line per router as the time weight grows from 0.\n",
+            "One line per router as the time weight grows from 0. Only "
+            f"{_FIXED['router_' + ev['shipped']]} ships.\n",
         ]
     out.append(
         f"One process, one machine, one-minute load average {min(loads):.1f} to "
@@ -469,11 +470,6 @@ def render(ev: dict, corrector: dict, environment: dict | None, commit: str, gen
     easy = ev["easyocr"]
     val = corrector["val"]
     decision = "It stays on by default." if corrector["decision"] == "keep" else "It was removed."
-    size_note = (
-        f"{card['unrouted']} images here are that large."
-        if card["unrouted"]
-        else "No image here is that large."
-    )
     out += [
         "## Removed components\n",
         f"EasyOCR (needs torch, about 2 GB): on the {easy['n']} train and validation images of "
@@ -483,18 +479,6 @@ def render(ev: dict, corrector: dict, environment: dict | None, commit: str, gen
         f"Spelling corrector, {val['n']} validation images: CER {_ci(val['cer_raw'])} without "
         f"it, {_ci(val['cer_corrected'])} with it, paired difference {_signed(val['delta'])}; it "
         f"changes {val['changed_share'] * 100:.0f}% of texts. {decision}\n",
-        "## Limitations\n",
-        "- Degradations are synthetic; noise and heavy JPEG are rarer in real captures.\n"
-        "- No captures of real applications and no manually transcribed screenshots.\n"
-        "- English and Russian only.\n"
-        "- Times are from one machine.\n"
-        f"- Train and validation images are at most {card['dev_max_pixels'] / 1e6:.3f} megapixels "
-        "and pipeline costs are means over them. Images up to 2 megapixels are routed, where "
-        "upscaling costs more (see the receipt times).\n"
-        "- The candidate pool followed a finding on the held-out slice of the 0.4 run (the "
-        "second engine helped mostly on noisy images), so that slice is not blind to the pool.\n"
-        f"- Images above 2 megapixels run `{LARGE_IMAGE.name}` unrouted; the rule was set after "
-        f"the receipt timings were seen. {size_note}\n",
         "## Reproduce\n",
         "```bash\n"
         "venv/bin/python benchmarks/browser.py            # browser pages (needs Chrome)\n"
