@@ -5,9 +5,11 @@ Two passes over the same samples:
   the text, its CER and the confidence statistics of each pipeline.
 - timing (--timing): one process, every pipeline on a development sample and on
   all evaluation slices. Nothing else should run on the machine meanwhile.
+  timing.json holds {"loadavg": [[start, end] per pass], "rows": {...}}.
 
 Sources: rendered screen text split by text into train / val / test plus an
-unseen-font slice, photographed receipts (SROIE), and pages rendered by a browser.
+unseen-font slice, photographed receipts (SROIE), pages rendered by a browser,
+and a confirmation slice rendered from texts that share nothing with the others.
 Records are appended to a .partial.jsonl file, so an interrupted run continues
 with --resume.
 """
@@ -33,27 +35,35 @@ from benchmarks.corpus import load_items
 from benchmarks.dataset import load_sroie
 from benchmarks.metrics import cer, normalize_text
 from benchmarks.pool import POOL
-from benchmarks.synthetic import generate
+from benchmarks.synthetic import (
+    CONFIRM_SEED,
+    CONFIRM_TEXTS,
+    fresh_items,
+    generate,
+    generate_slice,
+)
 from sniptext.analyzer import FEATURE_NAMES, ImageAnalyzer
 from sniptext.pipelines import Pipeline, recognize
 from sniptext.router import CONF_STAT_NAMES, conf_stats
 
 LANGUAGE = "eng+rus"
 DEV_SPLITS = ("train", "val")
-EVAL_SLICES = ("test", "unseen_font", "ood", "browser")
+EVAL_SLICES = ("test", "unseen_font", "ood", "browser", "confirm")
 _HERE = Path(__file__).resolve().parent
 _RESULTS = _HERE / "results.json"
 _PARTIAL = _HERE / "results.partial.jsonl"
 _TIMING = _HERE / "timing.json"
 _TIMING_PARTIAL = _HERE / "timing.partial.jsonl"
 _SYNTH_DIR = _HERE / "data" / "synthetic"
+_CONFIRM_DIR = _HERE / "data" / "confirm"
 _MANIFEST = _HERE / "data" / "browser" / "manifest.json"
 _META = ("source", "split", "text_id", "lang", "content", "font", "font_size", "theme",
          "degradation", "scale", "gt")  # fmt: skip
 
 
 def collect_samples(seed: int, sroie_limit: int, manifest=_MANIFEST) -> list[dict]:
-    samples = [dataclasses.asdict(s) for s in generate(_SYNTH_DIR, load_items(seed), seed=seed)]
+    items = load_items(seed)
+    samples = [dataclasses.asdict(s) for s in generate(_SYNTH_DIR, items, seed=seed)]
     for path, gt in load_sroie(limit=sroie_limit):
         samples.append(
             {
@@ -73,6 +83,11 @@ def collect_samples(seed: int, sroie_limit: int, manifest=_MANIFEST) -> list[dic
         )
     if Path(manifest).exists():
         samples += json.loads(Path(manifest).read_text())
+    # Texts that share nothing with the pool above: a slice to confirm the shipped policy on.
+    fresh = fresh_items(load_items(CONFIRM_SEED), items, CONFIRM_TEXTS, CONFIRM_SEED)
+    if fresh:
+        confirm = generate_slice(_CONFIRM_DIR, fresh, "confirm", CONFIRM_SEED)
+        samples += [dataclasses.asdict(s) for s in confirm]
     return samples
 
 
@@ -182,6 +197,8 @@ def timing_pass(samples: list[dict], seed: int, resume: bool) -> None:
     done = _read_partial(_TIMING_PARTIAL, resume)
     with Image.open(chosen[0]["path"]) as opened:
         run_pool(opened.convert("RGB"))  # the first call of a process is slower
+    # One [start, end] pair of load averages per pass; a resumed pass keeps the earlier ones.
+    passes = json.loads(_TIMING.read_text())["loadavg"] if resume and _TIMING.exists() else []
     loadavg_start = list(os.getloadavg())
     with open(_TIMING_PARTIAL, "a") as partial:
         for count, sample in enumerate(chosen, 1):
@@ -205,8 +222,7 @@ def timing_pass(samples: list[dict], seed: int, resume: bool) -> None:
     _TIMING.write_text(
         json.dumps(
             {
-                "loadavg_start": loadavg_start,
-                "loadavg_end": list(os.getloadavg()),
+                "loadavg": [*passes, [loadavg_start, list(os.getloadavg())]],
                 "rows": {Path(s["path"]).name: done[Path(s["path"]).name] for s in chosen},
             }
         )

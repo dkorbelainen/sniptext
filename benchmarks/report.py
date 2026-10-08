@@ -47,6 +47,13 @@ _SLICES = (
         "elements, in light and dark themes, at device scale 1, 1.5 and 2, with no degradation "
         "added. Nothing was fitted or selected on this slice.\n",
     ),
+    (
+        "confirm",
+        "Confirmation on fresh texts",
+        "Rendered like the held-out slice, from texts that share no six-word run with any text "
+        "of the other slices. The slice was generated and read after the shipped policy was "
+        "fixed.\n",
+    ),
 )
 
 
@@ -66,9 +73,24 @@ def _ci(triple) -> str:
     return f"{mean:.3f} [{low:.3f}, {high:.3f}]"
 
 
+def _bound(value: float) -> str:
+    """Three signed decimals; five when a non-zero bound would otherwise print as zero."""
+    text = f"{value:+.3f}"
+    return f"{value:+.5f}" if value != 0 and float(text) == 0 else text
+
+
 def _signed(triple) -> str:
     mean, low, high = triple
-    return f"{mean:+.3f} [{low:+.3f}, {high:+.3f}]"
+    return f"{mean:+.3f} [{_bound(low)}, {_bound(high)}]"
+
+
+def _relation(delta) -> str:
+    """What a paired interval supports, as words to put before the thing compared with."""
+    if delta[2] < 0:
+        return "lower than"
+    if delta[1] > 0:
+        return "higher than"
+    return "not distinguishable from"
 
 
 def _spec(spec: dict) -> str:
@@ -172,16 +194,73 @@ def _criteria(ev: dict) -> str:
         numbers = f" (paired difference {_signed(delta)})" if delta else ""
         return f"{text}: {'**met**' if met else '**not met**'}{numbers}."
 
-    return "\n".join(
-        [
-            line("1. The shipped router has significantly lower CER on held-out texts than the "
-                 "best static pipeline", c["router_beats_best_static"], c["test_delta"]),
-            line("2. It is not significantly worse than the 0.4 router, which needs EasyOCR",
-                 c["not_worse_than_v04"], c["v04_delta"]),
-            line("3. On browser pages it is not significantly worse than the best static "
-                 "pipeline", c["browser_not_worse"], c["browser_delta"]),
-        ]
-    ) + "\n"  # fmt: skip
+    lines = [
+        line("1. The shipped router has significantly lower CER on held-out texts than the "
+             "best static pipeline", c["router_beats_best_static"], c["test_delta"]),
+        line("2. It is not significantly worse than the 0.4 router, which needs EasyOCR",
+             c["not_worse_than_v04"], c["v04_delta"]),
+        line("3. On browser pages it is not significantly worse than the best static "
+             "pipeline", c["browser_not_worse"], c["browser_delta"]),
+    ]  # fmt: skip
+    if c["confirm_delta"]:
+        lines.append(
+            line(
+                "4. On fresh texts it has significantly lower CER than the best static pipeline",
+                c["confirm_beats_best_static"],
+                c["confirm_delta"],
+            )  # fmt: skip
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _rule_change(ev: dict) -> list:
+    """Why the policy that ships is not the one the first rule chose; nothing when it is."""
+    c = ev["criteria"]
+    first = c["preregistered_policy"]
+    if ev["shipped"] == "static" or first == ev["shipped"]:
+        return []
+    label = f"router_{first}"
+    out = (
+        "The rule fixed before the measurement was different: when the two routers are within "
+        f"0.005 out-of-fold CER, the faster one ships. It chose {_FIXED[label]}. On held-out "
+        f"texts that router's CER is {_relation(c['preregistered_test_delta'])} the best static "
+        f"pipeline's (paired difference {_signed(c['preregistered_test_delta'])})"
+    )
+    quiet = ev["noise_split"].get("test", {}).get("without added noise", {})
+    if label in quiet.get("delta_static", {}):
+        delta = quiet["delta_static"][label]
+        out += f", and on images without added noise it is {_relation(delta)} that pipeline's ({_signed(delta)})"
+    return [
+        out + ". The rule was replaced by the one above after the held-out results were seen. "
+        "The choice between the two routers was therefore made with those results in view, and "
+        "the held-out numbers of the shipped router are not a clean estimate. The confirmation "
+        "slice was generated afterwards for that reason.\n"
+    ]
+
+
+def _noise_tables(ev: dict, name: str) -> list:
+    split = ev["noise_split"][name]
+    labels = list(next(iter(split.values()))["cer"])
+    means = [
+        "| Group | n | " + " | ".join(_label(label, ev) for label in labels) + " |",
+        "|---|---|" + "---|" * len(labels),
+    ]
+    pairs = [
+        "| Group | Router | Difference to best static | Difference to 0.4 Tesseract |",
+        "|---|---|---|---|",
+    ]
+    for group, values in split.items():
+        cells = " | ".join(f"{values['cer'][label]:.3f}" for label in labels)
+        means.append(f"| {group} | {values['n']} | {cells} |")
+        for router, delta in values["delta_static"].items():
+            old = values["delta_v04"].get(router)
+            pairs.append(
+                f"| {group} | {_FIXED[router]} | {_signed(delta)} | {_signed(old) if old else ''} |"
+            )
+    out = ["\n".join(means) + "\n"]
+    if len(pairs) > 2:
+        out.append("\n".join(pairs) + "\n")
+    return out
 
 
 def _group_table(groups: dict, ev: dict) -> str:
@@ -319,7 +398,7 @@ def render(ev: dict, corrector: dict, environment: dict | None, commit: str, gen
     routed = ev["shipped"] != "static"
     splits = ", ".join(f"{name} {count}" for name, count in card["by_split"].items())
     actions = ", ".join(f"`{name}`" for name in ev["actions"])
-    load_start, load_end = (f"{values[0]:.1f}" for values in ev["loadavg"])
+    loads = [sample[0] for timing_pass in ev["loadavg"] for sample in timing_pass]
 
     out = [
         "# Tesseract pipeline router benchmark\n",
@@ -347,8 +426,9 @@ def render(ev: dict, corrector: dict, environment: dict | None, commit: str, gen
         "several times with a random font, size from 11 to 30 px, one of six colour schemes and "
         "up to two degradations out of blur, noise, JPEG, rescaling and low contrast.\n",
         "A text belongs to exactly one of train, validation and test. Two font families appear "
-        "only in the unseen-font slice. The receipts (SROIE) and the browser pages are never "
-        "used for fitting or selection.\n",
+        "only in the unseen-font slice. The receipts (SROIE), the browser pages and the fresh "
+        "texts are never used for fitting or selection; one rule of the app was set after "
+        "looking at the receipts and is named under Limitations.\n",
     ]
     if environment:
         fonts = "; ".join(f"{family}: {match}" for family, match in environment["fonts"].items())
@@ -372,13 +452,32 @@ def render(ev: dict, corrector: dict, environment: dict | None, commit: str, gen
                     f"{_spec(ship['spec'])}, time weight {ship['time_weight']:.3f}. It is scored "
                     "through `sniptext.router.Router`, the class the app uses, reading the model "
                     "file packaged with the app.\n",
-                    "Of the two routers the one with the lower out-of-fold CER ships, or the "
-                    f"faster one when they are within 0.005: {_FIXED['router_' + ev['shipped']]} "
+                    "Of the two routers the one with the lower out-of-fold CER ships: "
+                    f"{_FIXED['router_' + ev['shipped']]} "
                     f"has {mine['cer']:.3f} at {mine['time'] * 1000:.0f} ms per image, "
                     f"{_FIXED['router_' + other]} {theirs['cer']:.3f} at "
                     f"{theirs['time'] * 1000:.0f} ms.\n",
                 ]
-            out += ["The criteria fixed before the measurement:\n", _criteria(ev)]
+                out += _rule_change(ev)
+            out += [
+                "Criteria 1 to 3 were fixed before the first measurement. Criterion 4 was added "
+                "with the confirmation slice, before that slice was read.\n"
+                if ev["criteria"]["confirm_delta"]
+                else "The criteria fixed before the measurement:\n",
+                _criteria(ev),
+            ]
+
+    if ev["noise_split"]:
+        out += [
+            "## Images with and without added noise\n",
+            "Added noise is the degradation on which the pipelines differ most. Mean clipped "
+            "CER per group, then the paired difference of each router to the best static "
+            "pipeline and to Tesseract as version 0.4 ran it. This split was not planned before "
+            "the measurement.\n",
+        ]
+        for name, heading in (("test", "Held-out texts"), ("confirm", "Fresh texts")):
+            if name in ev["noise_split"]:
+                out += [f"### {heading}\n", *_noise_tables(ev, name)]
 
     out += [
         "## Clean and degraded images\n",
@@ -405,8 +504,9 @@ def render(ev: dict, corrector: dict, environment: dict | None, commit: str, gen
             "below that pipeline's.\n",
         ]
     out.append(
-        "Times were measured in one process on one machine; its load average was "
-        f"{load_start} when the timing pass started and {load_end} when it ended. Feature "
+        "Times were measured in one process on one machine; its one-minute load average at the "
+        f"start and end of the timing passes was between {min(loads):.1f} and {max(loads):.1f}. "
+        "Feature "
         f"extraction takes {ev['feature_time_mean'] * 1000:.1f} ms per image and is not included "
         "in the router's time.\n"
     )
@@ -486,6 +586,16 @@ def render(ev: dict, corrector: dict, environment: dict | None, commit: str, gen
         "- English and Russian only, with Tesseract configured for both.\n"
         "- Times are from one machine. The time weight trades error for seconds as measured "
         "there.\n"
+        f"- Train and validation images are at most {card['dev_max_pixels'] / 1e6:.3f} megapixels, "
+        "and the model's pipeline costs are means over them. The app routes images up to 2 "
+        "megapixels, where an upscaling pipeline costs more than those means; the receipts "
+        "table shows the times at that size.\n"
+        "- The candidate pool was built around something seen on the held-out slice of the 0.4 "
+        "run: that the second engine helped mostly on noisy images. The median and Gaussian "
+        "candidates come from that, so the held-out slice is not blind to the design of the "
+        "pool.\n"
+        "- The rule for images above 2 megapixels was chosen after the timings of the receipts "
+        "above the limit were seen.\n"
         "- The app does not route an image larger than 2 megapixels: it runs "
         f"`{LARGE_IMAGE.name}` on it, which upscales only small images. {size_note}\n",
         "## Reproduce\n",

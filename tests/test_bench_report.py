@@ -2,10 +2,13 @@
 
 import re
 
+import pytest
 from test_bench_train import FAST, fake_run
 
 from benchmarks import report, train_router
 from sniptext.pipelines import V04
+
+pytestmark = pytest.mark.usefixtures("fast_bootstrap")
 
 MEASURE = {"n": 10, "cer_raw": [0.050, 0.040, 0.060], "cer_corrected": [0.055, 0.045, 0.065],
            "delta": [0.005, -0.001, 0.011], "changed_share": 0.2}  # fmt: skip
@@ -15,7 +18,9 @@ ENVIRONMENT = {"chrome": "Google Chrome 1.0", "fonts": {"sans-serif": "A.ttf", "
                                                          "monospace": "C.ttf"}}  # fmt: skip
 HEADINGS = (
     "## Task", "## Data", "## Result on held-out texts", "## Unseen fonts",
-    "## Pages rendered by a browser", "## Clean and degraded images", "## Accuracy against time",
+    "## Pages rendered by a browser", "## Confirmation on fresh texts",
+    "## Images with and without added noise", "## Clean and degraded images",
+    "## Accuracy against time",
     "## How the pipelines were chosen", "## Model selection", "## Features", "## Breakdown",
     "## Why EasyOCR was removed", "## Text correction", "## Limitations", "## Reproduce",
 )  # fmt: skip
@@ -40,8 +45,9 @@ def test_render_has_every_section_and_no_missing_numbers(tmp_path):
 def test_criteria_are_stated_with_their_numbers(tmp_path):
     text = report.render(evaluation(tmp_path), CORRECTOR, ENVIRONMENT, "c", "d")
     assert "1. The shipped router has significantly lower CER" in text
-    assert text.count("**met**") + text.count("**not met**") == 3
+    assert text.count("**met**") + text.count("**not met**") == 4
     assert "**met** (paired difference -" in text
+    assert "4. On fresh texts" in text
 
 
 def test_a_static_model_is_reported_as_such(tmp_path):
@@ -89,3 +95,40 @@ def test_the_difference_to_the_v04_pipeline_is_stated_when_it_was_measured(tmp_p
     assert "Against Tesseract as version 0.4" not in report.render(
         evaluation(tmp_path / "plain"), CORRECTOR, None, "c", "d"
     )
+
+
+def test_small_bounds_are_not_printed_as_zero():
+    assert report._signed((-0.0117, -0.02403, 0.00004)) == "-0.012 [-0.024, +0.00004]"
+    assert report._signed((-0.0117, -0.02403, -0.00001)) == "-0.012 [-0.024, -0.00001]"
+    assert report._signed((0.0, 0.0, 0.0)) == "+0.000 [+0.000, +0.000]"
+    assert report._ci((0.0669, 0.0541, 0.0812)) == "0.067 [0.054, 0.081]"
+
+
+def test_the_change_of_the_selection_rule_is_disclosed(tmp_path):
+    ev = evaluation(tmp_path)
+    ev["criteria"]["preregistered_policy"] = "pre_ocr"
+    ev["shipped"] = "cascade"
+    text = report.render(ev, CORRECTOR, None, "c", "d")
+    assert "The rule fixed before the measurement" in text
+    assert "after the held-out results were seen" in text
+    same = evaluation(tmp_path / "same")
+    same["criteria"]["preregistered_policy"] = same["shipped"]
+    assert "after the held-out results were seen" not in report.render(
+        same, CORRECTOR, None, "c", "d"
+    )
+
+
+def test_the_noise_split_shows_both_routers_with_intervals(tmp_path):
+    text = report.render(evaluation(tmp_path), CORRECTOR, None, "c", "d")
+    section = text.split("## Images with and without added noise")[1].split("\n## ")[0]
+    assert "with added noise" in section and "without added noise" in section
+    assert "Router, before OCR" in section and "Router, cascade" in section
+    assert section.count("[") >= 4
+
+
+def test_limitations_state_the_fitted_size_range_and_the_disclosures(tmp_path):
+    text = report.render(evaluation(tmp_path), CORRECTOR, None, "c", "d")
+    limitations = text.split("## Limitations")[1]
+    assert "0.001 megapixels" in limitations
+    assert "seen on the held-out slice of the 0.4 run" in limitations
+    assert "after the timings of the receipts above the limit were seen" in limitations

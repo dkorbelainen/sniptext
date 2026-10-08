@@ -20,9 +20,11 @@ SPLITS = (
     "test",
     "unseen_font",
     "browser",
+    "confirm",
 )
 FAST = [{"kind": "gbr", "n_estimators": 40, "max_depth": 2, "learning_rate": 0.1}]
 NOISE = FEATURE_NAMES.index("noise_level")
+pytestmark = pytest.mark.usefixtures("fast_bootstrap")
 
 
 def fake_run(tmp_path, n_texts=100, seed=0, helpful=True, empty_alt=False):
@@ -71,7 +73,7 @@ def fake_run(tmp_path, n_texts=100, seed=0, helpful=True, empty_alt=False):
             if split != "train" or r == 0:
                 timing[image] = {"features": 0.002,
                                  "time": {"p_base": 0.10, "p_alt": 0.12, "p_same": 0.10, "p_bad": 0.10}}  # fmt: skip
-            if split != "browser":
+            if split not in ("browser", "confirm"):
                 legacy[image] = {"split": split, "cer": [base, 0.3, 0.3], "action": 0,
                                  "time": [0.1, 0.05]}  # fmt: skip
     paths = {
@@ -83,7 +85,7 @@ def fake_run(tmp_path, n_texts=100, seed=0, helpful=True, empty_alt=False):
         "pipelines": [{"name": name, "steps": ["light"], "psm": "6"} for name in NAMES],
         "rows": rows}))  # fmt: skip
     paths["timing"].write_text(json.dumps(
-        {"loadavg_start": [0.1, 0.1, 0.1], "loadavg_end": [0.2, 0.1, 0.1], "rows": timing}))  # fmt: skip
+        {"loadavg": [[[0.1, 0.1, 0.1], [0.2, 0.1, 0.1]]], "rows": timing}))  # fmt: skip
     paths["legacy"].write_text(json.dumps(
         {"source": "t", "actions": ["tesseract", "easyocr", "merge"], "rows": legacy}))  # fmt: skip
     return paths
@@ -104,7 +106,7 @@ def test_load_arrays(tmp_path):
     assert data["empty"][:, 1].any() and not data["empty"][:, 0].any()
     assert np.isnan(data["seconds"]).any() and not np.isnan(data["seconds"][~dev]).any()
     assert mean_seconds.tolist() == pytest.approx([0.10, 0.12, 0.10, 0.10])
-    assert data["loadavg"] == [[0.1, 0.1, 0.1], [0.2, 0.1, 0.1]]
+    assert data["loadavg"] == [[[0.1, 0.1, 0.1], [0.2, 0.1, 0.1]]]
 
 
 def test_action_costs():
@@ -176,11 +178,18 @@ def test_pick_time_weight_takes_the_largest_weight_within_tolerance():
     assert tr.pick_time_weight(pred, y, costs, weights=[0.0, 1.0, 10.0], tolerance=0.5) == 10.0
 
 
-def test_select_policy():
+def test_select_policy_takes_the_lower_cer_and_the_faster_on_a_tie():
     close = {"pre_ocr": {"cer": 0.050, "time": 0.2}, "cascade": {"cer": 0.048, "time": 0.3}}
-    assert tr.select_policy(close) == "pre_ocr"
+    assert tr.select_policy(close) == "cascade"
+    tie = {"pre_ocr": {"cer": 0.050, "time": 0.2}, "cascade": {"cer": 0.050, "time": 0.3}}
+    assert tr.select_policy(tie) == "pre_ocr"
+
+
+def test_preregistered_policy_prefers_speed_within_the_tolerance():
+    close = {"pre_ocr": {"cer": 0.050, "time": 0.2}, "cascade": {"cer": 0.048, "time": 0.3}}
+    assert tr.preregistered_policy(close) == "pre_ocr"
     apart = {"pre_ocr": {"cer": 0.060, "time": 0.2}, "cascade": {"cer": 0.048, "time": 0.3}}
-    assert tr.select_policy(apart) == "cascade"
+    assert tr.preregistered_policy(apart) == "cascade"
 
 
 def test_select_model_rejects_candidates_that_all_fail():
@@ -196,7 +205,7 @@ def test_run_end_to_end(tmp_path):
     assert ev["actions"] == ["p_base", "p_alt"]
     router = Router(paths["model"])
     assert router.available and router.default.name == "p_base"
-    assert set(ev["slices"]) == {"test", "unseen_font", "browser"}
+    assert set(ev["slices"]) == {"test", "unseen_font", "browser", "confirm"}
     test = {s["policy"]: s for s in ev["slices"]["test"]}
     shipped = test[f"router_{ev['shipped']}"]
     assert shipped["cer"][0] < 0.1 < test["always_p_base"]["cer"][0]
@@ -311,7 +320,7 @@ def test_run_pairs_the_shipped_policy_with_the_v04_pipeline(tmp_path):
     ev = tr.run(paths["results"], paths["timing"], paths["legacy"], paths["model"], paths["eval"],
                 candidates=FAST)  # fmt: skip
     deltas = ev["per_slice_delta_v04_tesseract"]
-    assert set(deltas) == {"test", "unseen_font", "browser"}
+    assert set(deltas) == {"test", "unseen_font", "browser", "confirm"}
     # the fabricated 0.4 pipeline has CER 0.9 everywhere
     assert all(delta[2] < -0.5 for delta in deltas.values())
 
@@ -321,3 +330,39 @@ def test_run_without_the_v04_pipeline_in_the_pool_has_no_such_pairing(tmp_path):
     ev = tr.run(paths["results"], paths["timing"], paths["legacy"], paths["model"], paths["eval"],
                 candidates=FAST)  # fmt: skip
     assert ev["per_slice_delta_v04_tesseract"] == {}
+
+
+def test_run_reports_the_confirmation_slice_and_the_preregistered_rule(tmp_path):
+    paths = fake_run(tmp_path)
+    ev = tr.run(paths["results"], paths["timing"], paths["legacy"], paths["model"], paths["eval"],
+                candidates=FAST)  # fmt: skip
+    criteria = ev["criteria"]
+    assert criteria["preregistered_policy"] in ("pre_ocr", "cascade")
+    assert criteria["preregistered_test_delta"][2] < 0
+    assert criteria["confirm_delta"][2] < 0 and criteria["confirm_beats_best_static"]
+    confirm = {s["policy"]: s for s in ev["slices"]["confirm"]}
+    assert confirm[f"router_{ev['shipped']}"]["delta"] == criteria["confirm_delta"]
+    assert "router_v04" not in confirm
+
+
+def test_run_splits_held_out_images_by_added_noise(tmp_path):
+    paths = fake_run(tmp_path)
+    ev = tr.run(paths["results"], paths["timing"], paths["legacy"], paths["model"], paths["eval"],
+                candidates=FAST)  # fmt: skip
+    assert set(ev["noise_split"]) == {"test", "confirm"}
+    split = ev["noise_split"]["test"]
+    assert set(split) == {"with added noise", "without added noise"}
+    assert sum(group["n"] for group in split.values()) == ev["slices"]["test"][0]["n"]
+    shipped = f"router_{ev['shipped']}"
+    noisy, quiet = split["with added noise"], split["without added noise"]
+    assert set(noisy["delta_static"]) == {"router_pre_ocr", "router_cascade"}
+    assert noisy["delta_static"][shipped][2] < -0.3
+    assert abs(quiet["delta_static"][shipped][0]) < 0.05
+    assert noisy["cer"]["always_p_base"] > 0.5 > noisy["cer"][shipped]
+
+
+def test_dataset_card_states_the_largest_development_image(tmp_path):
+    paths = fake_run(tmp_path)
+    ev = tr.run(paths["results"], paths["timing"], paths["legacy"], paths["model"], paths["eval"],
+                candidates=FAST)  # fmt: skip
+    assert ev["dataset"]["dev_max_pixels"] == 1000

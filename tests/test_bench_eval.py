@@ -9,6 +9,7 @@ from PIL import Image
 from benchmarks import run_eval
 from benchmarks.evaluate import cluster_bootstrap, effective, paired, realized, summarize
 from benchmarks.pool import POOL
+from benchmarks.synthetic import Sample
 from sniptext.analyzer import FEATURE_NAMES, ImageAnalyzer
 from sniptext.pipelines import V04, Pipeline
 
@@ -75,7 +76,7 @@ def test_timing_images_takes_a_dev_sample_and_every_eval_image():
     samples += [{"path": f"e{k}.png", "split": s} for k, s in enumerate(run_eval.EVAL_SLICES * 3)]
     chosen = run_eval.timing_images(samples, seed=1, n_dev=10)
     assert sum(s["split"] in run_eval.DEV_SPLITS for s in chosen) == 10
-    assert sum(s["split"] in run_eval.EVAL_SLICES for s in chosen) == 12
+    assert sum(s["split"] in run_eval.EVAL_SLICES for s in chosen) == 3 * len(run_eval.EVAL_SLICES)
     assert chosen == run_eval.timing_images(samples, seed=1, n_dev=10)
 
 
@@ -165,3 +166,72 @@ def test_summarize():
 def test_paired_difference_clips_both_sides():
     mean, low, high = paired([3.0, 0.0], [0.5, 0.0], ["a", "b"])
     assert mean == pytest.approx(0.25) and low <= mean <= high
+
+
+def test_collect_samples_appends_the_confirmation_slice(tmp_path, monkeypatch):
+    seen = {}
+
+    def fresh(candidates, used, n, seed):
+        seen["args"] = (candidates, used, n, seed)
+        return ["fresh text"]
+
+    def render(out, items, split, seed):
+        seen["render"] = (items, split, seed)
+        return [
+            Sample(
+                path=tmp_path / "c.png",
+                gt="g",
+                source="synthetic",
+                split=split,
+                text_id="c",
+                lang="en",
+                content="prose",
+                font="F",
+                font_size=12,
+                theme="light",
+                degradation="none",
+            )  # fmt: skip
+        ]
+
+    monkeypatch.setattr(run_eval, "generate", lambda out, items, seed: [])
+    monkeypatch.setattr(run_eval, "load_items", lambda seed: [f"items{seed}"])
+    monkeypatch.setattr(run_eval, "load_sroie", lambda limit: iter([(tmp_path / "r.jpg", "T")]))
+    monkeypatch.setattr(run_eval, "fresh_items", fresh)
+    monkeypatch.setattr(run_eval, "generate_slice", render)
+    samples = run_eval.collect_samples(42, 1, tmp_path / "missing.json")
+    assert [s["split"] for s in samples] == ["ood", "confirm"]
+    assert seen["args"] == (["items1042"], ["items42"], 150, 1042)
+    assert seen["render"] == (["fresh text"], "confirm", 1042)
+    assert "confirm" in run_eval.EVAL_SLICES
+
+
+def test_default_resample_count_gives_a_bound_that_does_not_depend_on_the_seed():
+    rng = np.random.default_rng(3)
+    values = rng.normal(0.0, 0.1, 600)
+    clusters = np.repeat(np.arange(150), 4)
+    highs = [cluster_bootstrap(values, clusters, seed=seed)[2] for seed in (0, 1, 2)]
+    assert max(highs) - min(highs) < 2e-4
+
+
+def test_bootstrap_resample_count_can_be_set():
+    values, clusters = np.arange(40) / 40, np.arange(40)
+    assert cluster_bootstrap(values, clusters, n_boot=50) != cluster_bootstrap(values, clusters)
+
+
+def test_a_resumed_timing_pass_keeps_the_earlier_load_averages(tmp_path, monkeypatch):
+    image = tmp_path / "a.png"
+    Image.new("RGB", (40, 20), "white").save(image)
+    samples = [{"path": image, "split": "test"}]
+    monkeypatch.setattr(run_eval, "_TIMING", tmp_path / "timing.json")
+    monkeypatch.setattr(run_eval, "_TIMING_PARTIAL", tmp_path / "timing.partial.jsonl")
+    monkeypatch.setattr(run_eval, "run_pool", lambda image: {})
+    monkeypatch.setattr(run_eval, "_timed", lambda pipeline, image: 0.25)
+    run_eval.timing_pass(samples, seed=1, resume=False)
+    first = json.loads((tmp_path / "timing.json").read_text())
+    assert len(first["loadavg"]) == 1 and len(first["loadavg"][0]) == 2
+    assert first["rows"]["a.png"]["time"] == {p.name: 0.25 for p in POOL}
+    run_eval.timing_pass(samples, seed=1, resume=True)
+    second = json.loads((tmp_path / "timing.json").read_text())
+    assert second["loadavg"][0] == first["loadavg"][0] and len(second["loadavg"]) == 2
+    run_eval.timing_pass(samples, seed=1, resume=False)
+    assert len(json.loads((tmp_path / "timing.json").read_text())["loadavg"]) == 1

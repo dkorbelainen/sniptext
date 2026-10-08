@@ -43,6 +43,9 @@ THEMES = {
 
 RENDERS_PER_TEXT = 4
 _SPLIT_SHARES = (("train", 0.6), ("val", 0.2), ("test", 0.2))
+CONFIRM_SEED = 1042
+CONFIRM_TEXTS = 150
+_RUN = 6
 
 
 @dataclass
@@ -161,6 +164,36 @@ def assign_splits(items: list[TextItem], seed: int = 42) -> dict[str, str]:
     return splits
 
 
+def _render_item(out_dir: Path, item: TextItem, plans: list, rng: random.Random) -> list[Sample]:
+    """One image per (font family, split) plan, drawing sizes and degradations from *rng*."""
+    samples = []
+    for number, (family, split) in enumerate(plans):
+        size = rng.randint(11, 30)
+        theme = rng.choice(sorted(THEMES))
+        names = _pick_degradations(rng)
+        image = render(item.text, family, size, theme)
+        for name in names:
+            image = DEGRADATIONS[name](image, rng)
+        path = out_dir / f"{item.text_id}_{number}.png"
+        image.save(path)
+        samples.append(
+            Sample(
+                path=path,
+                gt=item.text,
+                source="synthetic",
+                split=split,
+                text_id=item.text_id,
+                lang=item.lang,
+                content=item.content,
+                font=family,
+                font_size=size,
+                theme=theme,
+                degradation="+".join(names) or "none",
+            )
+        )
+    return samples
+
+
 def generate(out_dir: Path, items: list[TextItem], seed: int = 42) -> list[Sample]:
     """Render the corpus into *out_dir* and return its metadata."""
     out_dir = Path(out_dir)
@@ -174,31 +207,50 @@ def generate(out_dir: Path, items: list[TextItem], seed: int = 42) -> list[Sampl
         plans = [(rng.choice(SEEN_FONTS), split) for _ in range(RENDERS_PER_TEXT)]
         if split == "test":
             plans += [(family, "unseen_font") for family in UNSEEN_FONTS]
-        for number, (family, sample_split) in enumerate(plans):
-            size = rng.randint(11, 30)
-            theme = rng.choice(sorted(THEMES))
-            names = _pick_degradations(rng)
-            image = render(item.text, family, size, theme)
-            for name in names:
-                image = DEGRADATIONS[name](image, rng)
-            path = out_dir / f"{item.text_id}_{number}.png"
-            image.save(path)
-            samples.append(
-                Sample(
-                    path=path,
-                    gt=item.text,
-                    source="synthetic",
-                    split=sample_split,
-                    text_id=item.text_id,
-                    lang=item.lang,
-                    content=item.content,
-                    font=family,
-                    font_size=size,
-                    theme=theme,
-                    degradation="+".join(names) or "none",
-                )
-            )
+        samples += _render_item(out_dir, item, plans, rng)
     return samples
+
+
+def generate_slice(out_dir: Path, items: list[TextItem], split: str, seed: int) -> list[Sample]:
+    """Render every text like a held-out one, all under a single split name."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    samples: list[Sample] = []
+    for item in items:
+        rng = random.Random(f"{seed}:{item.text_id}")
+        plans = [(rng.choice(SEEN_FONTS), split) for _ in range(RENDERS_PER_TEXT)]
+        samples += _render_item(out_dir, item, plans, rng)
+    return samples
+
+
+def _word_runs(text: str) -> set[str]:
+    words = text.split()
+    return {" ".join(words[k : k + _RUN]) for k in range(max(1, len(words) - _RUN + 1))}
+
+
+def fresh_items(
+    candidates: list[TextItem], used: list[TextItem], n: int, seed: int
+) -> list[TextItem]:
+    """*n* candidates sharing no six-word run with a used text, in the used pool's proportions."""
+    taken = {item.text_id for item in used}
+    runs: set[str] = set()
+    shares: dict[tuple, int] = {}
+    for item in used:
+        runs |= _word_runs(item.text)
+        key = (item.lang, item.content)
+        shares[key] = shares.get(key, 0) + 1
+    groups: dict[tuple, list[TextItem]] = {}
+    for item in candidates:
+        if item.text_id not in taken and not (_word_runs(item.text) & runs):
+            groups.setdefault((item.lang, item.content), []).append(item)
+    out: list[TextItem] = []
+    for key in sorted(shares):
+        want = round(n * shares[key] / len(used))
+        have = sorted(groups.get(key, []), key=lambda item: item.text_id)
+        if len(have) < want:
+            raise ValueError(f"only {len(have)} fresh texts for {key}, {want} needed")
+        out += random.Random(f"{seed}:fresh:{key}").sample(have, want)
+    return out
 
 
 if __name__ == "__main__":

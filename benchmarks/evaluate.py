@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import numpy as np
 
+# A bound near zero moves in the fourth decimal at a few thousand resamples.
+N_BOOT = 100_000
+_CHUNK = 10_000
 
-def cluster_bootstrap(values, clusters, n_boot: int = 2000, seed: int = 0) -> tuple:
+
+def cluster_bootstrap(values, clusters, n_boot: int | None = None, seed: int = 0) -> tuple:
     """Mean of *values* and its 95% interval, resampling whole clusters.
 
     Images rendered from one text are not independent, so the text is the unit.
@@ -15,9 +19,14 @@ def cluster_bootstrap(values, clusters, n_boot: int = 2000, seed: int = 0) -> tu
     n = int(index.max()) + 1
     sums = np.bincount(index, weights=values, minlength=n)
     counts = np.bincount(index, minlength=n)
-    draws = np.random.default_rng(seed).integers(0, n, size=(n_boot, n))
-    means = sums[draws].sum(axis=1) / counts[draws].sum(axis=1)
-    low, high = np.percentile(means, [2.5, 97.5])
+    rng = np.random.default_rng(seed)
+    remaining = N_BOOT if n_boot is None else n_boot
+    means = []
+    while remaining > 0:
+        draws = rng.integers(0, n, size=(min(_CHUNK, remaining), n))
+        means.append(sums[draws].sum(axis=1) / counts[draws].sum(axis=1))
+        remaining -= len(draws)
+    low, high = np.percentile(np.concatenate(means), [2.5, 97.5])
     return float(values.mean()), float(low), float(high)
 
 

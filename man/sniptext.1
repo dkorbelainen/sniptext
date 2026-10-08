@@ -15,10 +15,12 @@ lets you select a screen region, recognises its text with Tesseract and
 copies the text to the clipboard.  Run without arguments it captures once
 and exits.  Bind \fBsniptext \-\-capture\-now\fR to a key in your compositor.
 .PP
-For each image a small model predicts the character error rate of each
-shipped preprocessing pipeline and the program runs the one with the best
-predicted accuracy for its time.  If that pipeline returns no text, the
-default pipeline runs instead.  Images above 2 megapixels are not routed.
+Every image is first read with the default preprocessing pipeline.  From
+image statistics and the confidences of that pass a small model predicts
+the character error rate of each shipped pipeline, and a second pipeline
+runs only when it is predicted to do better for its time.  If it returns
+no text, the first result is kept.  Images above 2 megapixels are not
+routed.
 .PP
 After a screen capture a desktop notification shows the start of the text,
 or the reason when Tesseract could not run.

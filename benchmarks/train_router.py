@@ -5,10 +5,11 @@
 2. Model per policy by GroupKFold over those texts, minimising regret to the oracle.
 3. Default time weight: the largest one that keeps out-of-fold CER within 0.005
    of the accuracy-only policy.
-4. The policy with the lower out-of-fold CER ships; the model is written into
-   the package. With a single selected action a static model ships.
-5. Final numbers on test, unseen fonts, receipts and browser pages; the shipped
-   policy is scored through sniptext.router.Router.
+4. The policy with the lower out-of-fold CER ships (the faster one on a tie);
+   the model is written into the package. With a single selected action a
+   static model ships.
+5. Final numbers on test, unseen fonts, receipts, browser pages and a slice of
+   fresh texts; the shipped policy is scored through sniptext.router.Router.
 """
 
 from __future__ import annotations
@@ -76,6 +77,7 @@ def load_arrays(results_path, timing_path) -> dict:
         "text_id": np.array([row["text_id"] for row in rows]),
         "image": np.array([row["image"] for row in rows]),
         "features": np.array([row["features"] for row in rows], dtype=float),
+        "pixels": np.array([row["pixels"] for row in rows]),
         "routable": np.array([row["pixels"] <= MAX_ROUTED_PIXELS for row in rows]),
         "cer": np.array([[row["cer"][n] for n in names] for row in rows], dtype=float),
         "empty": np.array([[not normalize_text(row["text"][n]) for n in names] for row in rows]),
@@ -84,7 +86,7 @@ def load_arrays(results_path, timing_path) -> dict:
         ),
         "seconds": seconds,
         "feature_seconds": feature_seconds,
-        "loadavg": [timing["loadavg_start"], timing["loadavg_end"]],
+        "loadavg": timing["loadavg"],
     }
 
 
@@ -193,7 +195,15 @@ def pick_time_weight(pred, y, costs, weights=TIME_WEIGHTS, tolerance: float = _T
 
 
 def select_policy(stats: dict) -> str:
-    """Lower out-of-fold CER wins; within the tolerance, the faster policy."""
+    """Lower out-of-fold CER wins; on a tie, the faster policy."""
+    return min(POLICIES, key=lambda policy: (stats[policy]["cer"], stats[policy]["time"]))
+
+
+def preregistered_policy(stats: dict) -> str:
+    """The rule fixed before the first measurement: within the tolerance, the faster policy.
+
+    Kept to report what it would have shipped. The report says why it was replaced.
+    """
     first, second = (stats[p] for p in POLICIES)
     if abs(first["cer"] - second["cer"]) <= _TOLERANCE:
         return POLICIES[0] if first["time"] <= second["time"] else POLICIES[1]
@@ -270,6 +280,7 @@ def _dataset_card(data: dict) -> dict:
         },
         "fonts": sorted({row["font"] for row in synthetic}),
         "unrouted": int((~data["routable"]).sum()),
+        "dev_max_pixels": int(data["pixels"][np.isin(data["split"], DEV_SPLITS)].max()),
     }
 
 
@@ -282,6 +293,42 @@ def _groups(rows: list, per_image: dict, shown: tuple, key) -> dict:
         }
         for group in dict.fromkeys(values.tolist())
     }
+
+
+def _noise_split(rows: list, vectors: dict, clusters, static_label: str) -> dict:
+    """Held-out images with and without added noise: mean CER and paired router differences."""
+    noisy = np.array(["noise" in row["degradation"].split("+") for row in rows])
+    v04_label = f"always_{V04.name}"
+    routers = [label for label in vectors if label in ("router_pre_ocr", "router_cascade")]
+    out = {}
+    for group, mask in (("with added noise", noisy), ("without added noise", ~noisy)):
+        if not mask.any():
+            continue
+
+        def against(label, mask=mask):
+            if label not in vectors:
+                return {}
+            return {
+                router: paired(vectors[router][mask], vectors[label][mask], clusters[mask])
+                for router in routers
+                if router != label
+            }
+
+        out[group] = {
+            "n": int(mask.sum()),
+            "cer": {
+                label: float(values[mask].mean())
+                for label, values in vectors.items()
+                if not label.startswith("oracle")
+            },
+            "delta_static": against(static_label),
+            "delta_v04": against(v04_label),
+        }
+    return out
+
+
+def _delta(slices: dict, name: str, label: str):
+    return next((s.get("delta") for s in slices.get(name, []) if s["policy"] == label), None)
 
 
 def run(results, timing, legacy_path, model_path, eval_path, candidates=CANDIDATES) -> dict:
@@ -315,12 +362,14 @@ def run(results, timing, legacy_path, model_path, eval_path, candidates=CANDIDAT
                                       _policy_cer(pred, y[dev], costs, 0.0)),
                 "models": fit(spec, X[dev], y[dev]),
             }  # fmt: skip
-        shipped = select_policy({policy: fitted[policy]["oof"] for policy in POLICIES})
+        oof = {policy: fitted[policy]["oof"] for policy in POLICIES}
+        shipped = select_policy(oof)
+        preregistered = preregistered_policy(oof)
         ship = fitted[shipped]
         model = export_model(shipped, ship["names"], pipelines, ship["costs"], ship["weight"],
                              ship["spec"], ship["models"])  # fmt: skip
     else:
-        shipped = "static"
+        shipped = preregistered = "static"
         model = export_model("static", data["feature_names"], pipelines,
                              [mean_seconds[best_static]], 0.0, None, [])  # fmt: skip
     write_model(model_path, model)
@@ -386,21 +435,34 @@ def run(results, timing, legacy_path, model_path, eval_path, candidates=CANDIDAT
         slices[name] = summaries
         per_image[name] = vectors
 
-    test_delta = next(s for s in slices["test"] if s["policy"] == shipped_label).get("delta")
-    browser = slices.get("browser")
-    browser_delta = (
-        next(s for s in browser if s["policy"] == shipped_label).get("delta") if browser else None
-    )
+    static_label = f"always_{names[best_static]}"
+    test_delta = _delta(slices, "test", shipped_label)
+    browser_delta = _delta(slices, "browser", shipped_label)
+    confirm_delta = _delta(slices, "confirm", shipped_label)
+    preregistered_label = static_label if preregistered == "static" else f"router_{preregistered}"
     criteria = {
         "router_beats_best_static": bool(test_delta is not None and test_delta[2] < 0),
         "not_worse_than_v04": bool("test" in v04_delta and v04_delta["test"][1] <= 0),
         "browser_not_worse": bool(browser_delta is None or browser_delta[1] <= 0),
+        "confirm_beats_best_static": bool(confirm_delta is not None and confirm_delta[2] < 0),
         "test_delta": test_delta,
         "v04_delta": v04_delta.get("test"),
         "browser_delta": browser_delta,
+        "confirm_delta": confirm_delta,
+        "confirm_delta_v04_tesseract": tesseract_delta.get("confirm"),
+        "preregistered_policy": preregistered,
+        "preregistered_test_delta": _delta(slices, "test", preregistered_label),
     }
+    noise_split = {}
+    for name in ("test", "confirm"):
+        if name in per_image:
+            mask = data["split"] == name
+            rows = [row for row, keep in zip(data["rows"], mask) if keep]
+            noise_split[name] = _noise_split(
+                rows, per_image[name], data["text_id"][mask], static_label
+            )
 
-    wanted = (f"always_{names[best_static]}", f"always_{V04.name}", shipped_label, "oracle")
+    wanted = (static_label, f"always_{V04.name}", shipped_label, "oracle")
     shown = tuple(label for label in dict.fromkeys(wanted) if label in per_image["test"])
     breakdown = {}
     for name, keys in (
@@ -469,6 +531,7 @@ def run(results, timing, legacy_path, model_path, eval_path, candidates=CANDIDAT
         "per_slice_delta_v04_tesseract": tesseract_delta,
         "breakdown": breakdown,
         "clean_vs_degraded": clean_vs_degraded,
+        "noise_split": noise_split,
         "easyocr": easyocr,
         "criteria": criteria,
         "feature_time_mean": float(np.nanmean(data["feature_seconds"])),

@@ -93,3 +93,54 @@ def test_missing_font_family_is_an_error(monkeypatch):
     with pytest.raises(RuntimeError, match="No Such Family"):
         synthetic._font_file("No Such Family")
     synthetic._font_file.cache_clear()
+
+
+def pool(prefix, n=40):
+    out = []
+    for k in range(n):
+        lang, content = (("en", "prose"), ("ru", "prose"), ("en", "code"), ("en", "ui"))[k % 4]
+        words = " ".join(f"{prefix}{k}w{j}" for j in range(8))
+        out.append(TextItem(f"{prefix}{k:03d}", lang, content, words))
+    return out
+
+
+def test_fresh_items_share_no_word_run_with_used_texts():
+    used = pool("u")
+    overlapping = TextItem("x001", "en", "prose", "intro " + used[0].text + " outro")
+    same_id = TextItem(used[1].text_id, "en", "prose", "entirely different words here ok fine yes")
+    candidates = pool("c") + [overlapping, same_id]
+    fresh = synthetic.fresh_items(candidates, used, 12, seed=1)
+    ids = {item.text_id for item in fresh}
+    assert len(fresh) == 12 and "x001" not in ids and used[1].text_id not in ids
+    assert ids <= {item.text_id for item in candidates}
+
+
+def test_fresh_items_follow_the_used_pool_proportions_and_are_deterministic():
+    used, candidates = pool("u"), pool("c", 80)
+    fresh = synthetic.fresh_items(candidates, used, 20, seed=1)
+    counts = {}
+    for item in fresh:
+        counts[(item.lang, item.content)] = counts.get((item.lang, item.content), 0) + 1
+    assert counts == {("en", "prose"): 5, ("ru", "prose"): 5, ("en", "code"): 5, ("en", "ui"): 5}
+    assert fresh == synthetic.fresh_items(candidates, used, 20, seed=1)
+    assert fresh != synthetic.fresh_items(candidates, used, 20, seed=2)
+
+
+def test_fresh_items_fail_when_a_group_runs_short():
+    with pytest.raises(ValueError, match="fresh"):
+        synthetic.fresh_items(pool("c", 8), pool("u"), 20, seed=1)
+
+
+def test_generate_slice_renders_every_text_under_one_split(tmp_path):
+    texts = pool("c", 6)
+    samples = synthetic.generate_slice(tmp_path, texts, "confirm", seed=7)
+    assert len(samples) == 6 * synthetic.RENDERS_PER_TEXT
+    assert {s.split for s in samples} == {"confirm"} and {s.source for s in samples} == {
+        "synthetic"
+    }
+    assert {s.font for s in samples} <= set(synthetic.SEEN_FONTS)
+    assert all(s.path.exists() for s in samples)
+    again = synthetic.generate_slice(tmp_path / "b", texts, "confirm", seed=7)
+    assert [(s.font, s.font_size, s.theme, s.degradation) for s in samples] == [
+        (s.font, s.font_size, s.theme, s.degradation) for s in again
+    ]
