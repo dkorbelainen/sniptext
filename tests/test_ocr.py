@@ -1,6 +1,8 @@
+import shutil
+
 import numpy as np
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 from sniptext.config import Config
 from sniptext.ocr import OCREngine, OCRError
@@ -245,3 +247,11 @@ def test_shipped_router_with_a_real_config(monkeypatch):
     assert engine.recognize(white((400, 120))) == "x"
     assert 1 <= len(passes) <= 2
     assert passes[0] in {action.name for action in engine.router.actions}
+
+
+@pytest.mark.skipif(shutil.which("tesseract") is None, reason="needs the tesseract binary")
+def test_real_tesseract_reads_rendered_text():
+    image = Image.new("RGB", (520, 90), "white")
+    font = ImageFont.load_default(size=40)
+    ImageDraw.Draw(image).text((20, 20), "Hello world 2026", fill="black", font=font)
+    assert OCREngine(Config()).recognize(image) == "Hello world 2026"

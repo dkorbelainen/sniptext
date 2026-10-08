@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from benchmarks import modeling
+from sniptext.analyzer import FEATURE_NAMES
 from sniptext.pipelines import DEFAULT, Pipeline
 from sniptext.router import (
     CONF_STAT_NAMES,
@@ -189,6 +190,11 @@ class TestShippedModel:
         assert model.actions[0] == DEFAULT
         assert 1 <= len(model.actions) <= 4
         assert len({action.name for action in model.actions}) == len(model.actions)
+
+    def test_its_inputs_are_the_analyzer_features_in_order(self):
+        model = load_model()
+        stats = CONF_STAT_NAMES if model.policy == "cascade" else ()
+        assert model.feature_names == FEATURE_NAMES + stats
 
     def test_the_router_answers_for_a_plain_feature_vector(self):
         router = Router()
