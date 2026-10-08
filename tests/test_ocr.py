@@ -1,484 +1,257 @@
-"""Tests for OCREngine internals (no real OCR calls)."""
-
-from unittest.mock import MagicMock, patch
+import shutil
 
 import numpy as np
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 from sniptext.config import Config
-from sniptext.ocr import EasyOCRBackend, OCREngine, TesseractBackend
+from sniptext.ocr import OCREngine, OCRError
+from sniptext.pipelines import LARGE_IMAGE, MAX_ROUTED_PIXELS, Pipeline
 
-
-class TestPrepareImage:
-    """Test OCREngine._prepare_image."""
-
-    def setup_method(self):
-        self.config = Config()
-        self.engine = OCREngine(self.config)
-
-    def test_pil_image_passthrough(self):
-        img = Image.fromarray(np.zeros((100, 100, 3), dtype=np.uint8))
-        result = self.engine._prepare_image(img)
-        assert isinstance(result, Image.Image)
-
-    def test_rgb_numpy_array(self):
-        arr = np.zeros((100, 100, 3), dtype=np.uint8)
-        result = self.engine._prepare_image(arr)
-        assert isinstance(result, Image.Image)
-        assert result.mode == "RGB"
-
-    def test_grayscale_numpy_array(self):
-        arr = np.zeros((100, 100), dtype=np.uint8)
-        result = self.engine._prepare_image(arr)
-        assert isinstance(result, Image.Image)
-        assert result.mode == "L"
-
-    def test_rgba_numpy_array_converted_to_rgb(self):
-        arr = np.zeros((100, 100, 4), dtype=np.uint8)
-        result = self.engine._prepare_image(arr)
-        assert isinstance(result, Image.Image)
-        assert result.mode == "RGB"
-
-    def test_rgba_pil_image_converted_to_rgb(self):
-        img = Image.fromarray(np.zeros((100, 100, 4), dtype=np.uint8), mode="RGBA")
-        result = self.engine._prepare_image(img)
-        assert isinstance(result, Image.Image)
-        assert result.mode == "RGB"
-
-    def test_max_image_size_respected(self):
-        config = Config(max_image_size=64)
-        engine = OCREngine(config)
-        arr = np.zeros((200, 300, 3), dtype=np.uint8)
-        result = engine._prepare_image(arr)
-        assert max(result.width, result.height) <= 64
-
-    def test_small_image_not_resized(self):
-        config = Config(max_image_size=4096)
-        engine = OCREngine(config)
-        arr = np.zeros((100, 100, 3), dtype=np.uint8)
-        result = engine._prepare_image(arr)
-        assert result.width == 100
-        assert result.height == 100
-
-    def test_pil_image_not_mutated_on_resize(self):
-        config = Config(max_image_size=64)
-        engine = OCREngine(config)
-        original = Image.fromarray(np.zeros((200, 200, 3), dtype=np.uint8))
-        engine._prepare_image(original)
-        assert original.width == 200
-        assert original.height == 200
-
-
-class TestGetAvailableBackends:
-    def test_returns_list(self):
-        engine = OCREngine(Config())
-        backends = engine.get_available_backends()
-        assert isinstance(backends, list)
-
-    def test_tesseract_in_backends(self):
-        engine = OCREngine(Config())
-        backends = engine.get_available_backends()
-        assert "tesseract" in backends
-
-
-class TestEasyOCRBackendLangCodes:
-    def test_eng_maps_to_en(self):
-        config = Config(ocr_language="eng")
-        backend = EasyOCRBackend(config)
-        assert backend._get_lang_codes() == ["en"]
-
-    def test_rus_maps_to_ru(self):
-        config = Config(ocr_language="rus")
-        backend = EasyOCRBackend(config)
-        assert backend._get_lang_codes() == ["ru"]
-
-    def test_multi_language(self):
-        config = Config(ocr_language="eng+rus")
-        backend = EasyOCRBackend(config)
-        codes = backend._get_lang_codes()
-        assert "en" in codes
-        assert "ru" in codes
-
-    def test_unknown_lang_passed_as_is(self):
-        config = Config(ocr_language="xyz")
-        backend = EasyOCRBackend(config)
-        assert backend._get_lang_codes() == ["xyz"]
-
-    def test_confidence_threshold_respected(self):
-        """Detections below ocr_confidence_threshold must be dropped."""
-        config = Config(ocr_language="eng", ocr_confidence_threshold=0.7)
-        backend = EasyOCRBackend(config)
-        backend._available = True
-        backend._initialized = True
-
-        mock_reader = MagicMock()
-        # Two detections: one above threshold, one below
-        mock_reader.readtext.return_value = [
-            ([[0, 0], [10, 0], [10, 10], [0, 10]], "hello", 0.9),
-            ([[0, 0], [10, 0], [10, 10], [0, 10]], "noise", 0.4),
-        ]
-        backend._reader = mock_reader
-
-        img = Image.fromarray(np.zeros((20, 20, 3), dtype=np.uint8))
-        result = backend.recognize(img)
-        assert "hello" in result
-        assert "noise" not in result
-
-
-class TestTesseractBackendLangCode:
-    def test_returns_config_language(self):
-        config = Config(ocr_language="eng")
-        backend = TesseractBackend(config)
-        assert backend._get_lang_code() == "eng"
-
-    def test_returns_custom_language(self):
-        config = Config(ocr_language="rus")
-        backend = TesseractBackend(config)
-        assert backend._get_lang_code() == "rus"
-
-
-class TestOCREngineRecognize:
-    """Tests for OCREngine.recognize() and _recognize_ensemble()."""
-
-    def _engine_with_mocked_backend(self, text="hello", correction=False, engine="tesseract"):
-        """Build an OCREngine whose Tesseract backend is fully mocked."""
-        with (
-            patch.object(TesseractBackend, "is_available", return_value=True),
-            patch.object(TesseractBackend, "recognize", return_value=text),
-        ):
-            config = Config(
-                ocr_engine=engine,
-                enable_text_correction=correction,
-                adaptive_ensemble=False,
-            )
-            return OCREngine(config)
-
-    def test_single_backend_returns_recognized_text(self):
-        engine = self._engine_with_mocked_backend("hello world")
-        arr = np.zeros((100, 100, 3), dtype=np.uint8)
-        with patch.object(TesseractBackend, "recognize", return_value="hello world"):
-            result = engine.recognize(arr)
-        assert result == "hello world"
-
-    def test_recognize_returns_empty_string_on_backend_exception(self):
-        with (
-            patch.object(TesseractBackend, "is_available", return_value=True),
-            patch.object(TesseractBackend, "recognize", side_effect=RuntimeError("boom")),
-        ):
-            config = Config(ocr_engine="tesseract", enable_text_correction=False)
-            engine = OCREngine(config)
-        arr = np.zeros((100, 100, 3), dtype=np.uint8)
-        with patch.object(TesseractBackend, "recognize", side_effect=RuntimeError("boom")):
-            result = engine.recognize(arr)
-        assert result == ""
-
-    def test_recognize_applies_text_correction(self):
-        with patch.object(TesseractBackend, "is_available", return_value=True):
-            config = Config(
-                ocr_engine="tesseract",
-                enable_text_correction=True,
-                ocr_language="eng",
-                adaptive_ensemble=False,
-            )
-            engine = OCREngine(config)
-        arr = np.zeros((100, 100, 3), dtype=np.uint8)
-        with patch.object(TesseractBackend, "recognize", return_value="1 am happy"):
-            result = engine.recognize(arr)
-        assert "I am" in result
-
-    def test_recognize_ensemble_no_available_backends_returns_empty(self):
-        with patch.object(TesseractBackend, "is_available", return_value=True):
-            config = Config(ocr_engine="tesseract", enable_text_correction=False)
-            engine = OCREngine(config)
-        # Mark all backends unavailable to simulate _recognize_ensemble with nothing
-        for b in engine.backends.values():
-            b._available = False
-        result = engine._recognize_ensemble(Image.fromarray(np.zeros((10, 10, 3), dtype=np.uint8)))
-        assert result == ""
-
-    def test_recognize_ensemble_single_result_passthrough(self):
-        with patch.object(TesseractBackend, "is_available", return_value=True):
-            config = Config(ocr_engine="tesseract", enable_text_correction=False)
-            engine = OCREngine(config)
-        with (
-            patch.object(TesseractBackend, "is_available", return_value=True),
-            patch.object(
-                TesseractBackend, "recognize_detailed", return_value=("only result", None)
-            ),
-            patch.object(EasyOCRBackend, "is_available", return_value=False),
-            patch("pytesseract.image_to_data") as real_tesseract,
-        ):
-            result = engine._recognize_ensemble(
-                Image.fromarray(np.zeros((10, 10, 3), dtype=np.uint8))
-            )
-        assert result == "only result"
-        real_tesseract.assert_not_called()
-
-    def test_recognize_ensemble_combines_two_backends(self):
-        with patch.object(TesseractBackend, "is_available", return_value=True):
-            config = Config(ocr_engine="tesseract", enable_text_correction=False)
-            engine = OCREngine(config)
-        with (
-            patch.object(TesseractBackend, "is_available", return_value=True),
-            patch.object(
-                TesseractBackend, "recognize_detailed", return_value=("hello world", [[0.9, 0.9]])
-            ),
-            patch.object(EasyOCRBackend, "is_available", return_value=True),
-            patch.object(
-                EasyOCRBackend, "recognize_detailed", return_value=("hello world", [[0.8, 0.8]])
-            ),
-            patch.object(EasyOCRBackend, "_lazy_init") as real_reader,
-        ):
-            result = engine._recognize_ensemble(
-                Image.fromarray(np.zeros((10, 10, 3), dtype=np.uint8))
-            )
-        assert "hello" in result
-        assert "world" in result
-        real_reader.assert_not_called()
-
-
-class TestTesseractBackendRecognize:
-    """Tests for TesseractBackend.recognize() with mocked pytesseract."""
-
-    def _make_backend(self, lang="eng"):
-        config = Config(ocr_language=lang)
-        with patch.object(TesseractBackend, "_check_available", return_value=True):
-            backend = TesseractBackend(config)
-        backend._available = True
-        backend._tesseract = MagicMock()
-        backend._tesseract.image_to_string.return_value = "  hello world  "
-        return backend
-
-    def test_returns_stripped_text(self):
-        backend = self._make_backend()
-        img = Image.fromarray(np.zeros((100, 400, 3), dtype=np.uint8))
-        result = backend.recognize(img)
-        assert result == "hello world"
-
-    def test_calls_image_to_string_with_lang(self):
-        backend = self._make_backend(lang="rus")
-        img = Image.fromarray(np.zeros((100, 400, 3), dtype=np.uint8))
-        backend.recognize(img)
-        call_kwargs = backend._tesseract.image_to_string.call_args
-        assert call_kwargs[1]["lang"] == "rus" or call_kwargs[0][1] == "rus"
-
-    def test_calls_image_to_string_with_psm_config(self):
-        backend = self._make_backend()
-        img = Image.fromarray(np.zeros((100, 400, 3), dtype=np.uint8))
-        backend.recognize(img)
-        call_kwargs = backend._tesseract.image_to_string.call_args
-        config_str = call_kwargs[1].get("config") or call_kwargs[0][2]
-        assert "--psm" in config_str
-        assert "--oem 1" in config_str
-
-    def test_raises_when_not_available(self):
-        config = Config()
-        with patch.object(TesseractBackend, "_check_available", return_value=True):
-            backend = TesseractBackend(config)
-        backend._available = False
-        img = Image.fromarray(np.zeros((10, 10, 3), dtype=np.uint8))
-        with pytest.raises(RuntimeError, match="Tesseract not available"):
-            backend.recognize(img)
-
-
-class TestInitializeBackend:
-    """Tests for OCREngine._initialize_backend() fallback logic."""
-
-    def _engine(self, engine_name: str) -> OCREngine:
-        config = Config(ocr_engine=engine_name, enable_text_correction=False)
-        with patch.object(TesseractBackend, "_check_available", return_value=True):
-            return OCREngine(config)
-
-    def test_tesseract_engine_returns_tesseract_when_available(self):
-        eng = self._engine("tesseract")
-        with (
-            patch.object(TesseractBackend, "is_available", return_value=True),
-            patch.object(EasyOCRBackend, "is_available", return_value=True),
-        ):
-            backend = eng._initialize_backend()
-        assert isinstance(backend, TesseractBackend)
-
-    def test_easyocr_engine_returns_easyocr_when_available(self):
-        eng = self._engine("easyocr")
-        with (
-            patch.object(TesseractBackend, "is_available", return_value=True),
-            patch.object(EasyOCRBackend, "is_available", return_value=True),
-        ):
-            backend = eng._initialize_backend()
-        assert isinstance(backend, EasyOCRBackend)
-
-    def test_easyocr_falls_back_to_tesseract(self):
-        eng = self._engine("easyocr")
-        with (
-            patch.object(EasyOCRBackend, "is_available", return_value=False),
-            patch.object(TesseractBackend, "is_available", return_value=True),
-        ):
-            backend = eng._initialize_backend()
-        assert isinstance(backend, TesseractBackend)
-
-    def test_tesseract_falls_back_to_easyocr(self):
-        eng = self._engine("tesseract")
-        with (
-            patch.object(TesseractBackend, "is_available", return_value=False),
-            patch.object(EasyOCRBackend, "is_available", return_value=True),
-        ):
-            backend = eng._initialize_backend()
-        assert isinstance(backend, EasyOCRBackend)
-
-    def test_raises_when_no_backend_available(self):
-        eng = self._engine("tesseract")
-        with (
-            patch.object(TesseractBackend, "is_available", return_value=False),
-            patch.object(EasyOCRBackend, "is_available", return_value=False),
-        ):
-            with pytest.raises(RuntimeError, match="No OCR backend available"):
-                eng._initialize_backend()
-
-
-class TestEasyOCRAvailability:
-    def test_broken_install_counts_as_unavailable(self):
-        import builtins
-
-        real_import = builtins.__import__
-
-        def broken(name, *args, **kwargs):
-            if name == "easyocr":
-                raise OSError("libcudnn.so.9: cannot open shared object file")
-            return real_import(name, *args, **kwargs)
-
-        backend = EasyOCRBackend(Config())
-        with patch("builtins.__import__", side_effect=broken):
-            assert backend.is_available() is False
+FIRST = Pipeline("first", ("light",), "6")
+OTHER = Pipeline("other", ("light", "up2"), "6")
 
 
 class FakeRouter:
-    def __init__(self, action, policy="pre_ocr", tesseract_call="detailed", available=True):
-        self.action = action
-        self.policy = policy
-        self.tesseract_call = tesseract_call
-        self.available = available
+    def __init__(self, policy="pre_ocr", pick=OTHER, available=True):
+        self.policy, self.pick, self.available = policy, pick, available
+        self.actions, self.default = (FIRST, OTHER), FIRST
         self.calls = []
 
-    def choose(self, features, tesseract_conf=None):
-        self.calls.append((len(features), tesseract_conf))
-        return self.action
+    def choose(self, features, first_conf=None):
+        self.calls.append(first_conf)
+        return self.pick
 
 
-def routed_engine(router, tess_available=True, easy_available=True):
-    """OCREngine in adaptive mode with stub backends and a stub router."""
-    with patch.object(TesseractBackend, "is_available", return_value=True):
-        engine = OCREngine(
-            Config(ocr_engine="ensemble", adaptive_ensemble=True, enable_text_correction=False)
-        )
-    tess = MagicMock()
-    tess.is_available.return_value = tess_available
-    tess.recognize.return_value = "hello plain"
-    tess.recognize_detailed.return_value = ("hello wor1d", [[0.9, 0.3]])
-    easy = MagicMock()
-    easy.is_available.return_value = easy_available
-    easy.recognize_detailed.return_value = ("hello world", [[0.8, 0.8]])
-    engine.backends = {"tesseract": tess, "easyocr": easy}
-    engine.router = router
-    return engine, tess, easy
+@pytest.fixture(autouse=True)
+def installed_languages(monkeypatch):
+    monkeypatch.setattr("pytesseract.get_languages", lambda config="": ["eng", "osd", "rus"])
 
 
-WHITE = np.full((60, 200, 3), 255, dtype=np.uint8)
+@pytest.fixture
+def make(monkeypatch):
+    """Build an engine whose Tesseract passes return the given text per pipeline name."""
+    monkeypatch.setattr("pytesseract.get_tesseract_version", lambda: "5.0")
+
+    def build(texts, router=None, **config):
+        engine = OCREngine(Config(**config))
+        engine.router = router or FakeRouter()
+        passes = []
+
+        def fake(pipeline, image, lang):
+            passes.append(pipeline.name)
+            result = texts[pipeline.name]
+            if isinstance(result, Exception):
+                raise result
+            return result, [[0.8]]
+
+        monkeypatch.setattr("sniptext.ocr.recognize", fake)
+        return engine, passes
+
+    return build
 
 
-class TestRoutedRecognize:
-    def test_tesseract_action_uses_one_detailed_call(self):
-        engine, tess, easy = routed_engine(FakeRouter("tesseract"))
-        assert engine.recognize(WHITE) == "hello wor1d"
-        assert tess.recognize_detailed.call_count == 1
-        tess.recognize.assert_not_called()
-        easy.recognize_detailed.assert_not_called()
-        assert engine.router.calls == [(12, None)]
+def white(size=(200, 60)):
+    return Image.new("RGB", size, "white")
 
-    def test_tesseract_action_does_not_probe_easyocr(self):
-        engine, _, easy = routed_engine(FakeRouter("tesseract"))
-        assert engine.recognize(WHITE) == "hello wor1d"
-        easy.is_available.assert_not_called()
 
-    def test_missing_router_does_not_probe_easyocr(self):
-        engine, _, easy = routed_engine(FakeRouter("tesseract", available=False))
-        assert engine.recognize(WHITE) == "hello plain"
-        easy.is_available.assert_not_called()
+class TestPrepareImage:
+    def engine(self, monkeypatch, **config):
+        monkeypatch.setattr("pytesseract.get_tesseract_version", lambda: "5.0")
+        return OCREngine(Config(**config))
 
-    def test_tesseract_action_honours_plain_call(self):
-        engine, tess, _ = routed_engine(FakeRouter("tesseract", tesseract_call="plain"))
-        assert engine.recognize(WHITE) == "hello plain"
-        tess.recognize_detailed.assert_not_called()
+    def test_numpy_arrays(self, monkeypatch):
+        engine = self.engine(monkeypatch)
+        assert engine._prepare_image(np.zeros((10, 20), dtype=np.uint8)).mode == "L"
+        assert engine._prepare_image(np.zeros((10, 20, 3), dtype=np.uint8)).mode == "RGB"
+        assert engine._prepare_image(np.zeros((10, 20, 4), dtype=np.uint8)).mode == "RGB"
 
-    def test_easyocr_action_skips_tesseract(self):
-        engine, tess, easy = routed_engine(FakeRouter("easyocr"))
-        assert engine.recognize(WHITE) == "hello world"
-        tess.recognize.assert_not_called()
-        tess.recognize_detailed.assert_not_called()
-        assert easy.recognize_detailed.call_count == 1
+    def test_transparent_pixels_become_white(self, monkeypatch):
+        image = Image.new("RGBA", (20, 10), (0, 0, 0, 0))
+        image.putpixel((5, 5), (0, 0, 0, 255))
+        out = self.engine(monkeypatch)._prepare_image(image)
+        assert out.mode == "RGB"
+        assert out.getpixel((0, 0)) == (255, 255, 255) and out.getpixel((5, 5)) == (0, 0, 0)
 
-    def test_merge_action_resolves_by_confidence(self):
-        engine, tess, easy = routed_engine(FakeRouter("merge"))
-        assert engine.recognize(WHITE) == "hello world"
-        assert tess.recognize_detailed.call_count == 1
-        assert easy.recognize_detailed.call_count == 1
+    def test_light_text_on_transparency_gets_a_dark_backdrop(self, monkeypatch):
+        image = Image.new("RGBA", (20, 10), (0, 0, 0, 0))
+        image.putpixel((5, 5), (255, 255, 255, 255))
+        out = self.engine(monkeypatch)._prepare_image(image)
+        assert out.getpixel((0, 0)) == (0, 0, 0) and out.getpixel((5, 5)) == (255, 255, 255)
 
-    def test_cascade_passes_tesseract_confidence_and_reuses_its_text(self):
-        engine, tess, easy = routed_engine(FakeRouter("tesseract", policy="cascade"))
-        assert engine.recognize(WHITE) == "hello wor1d"
-        assert tess.recognize_detailed.call_count == 1
-        tess.recognize.assert_not_called()
-        easy.recognize_detailed.assert_not_called()
-        assert engine.router.calls == [(12, [[0.9, 0.3]])]
+    def test_a_fully_transparent_image_becomes_white(self, monkeypatch):
+        out = self.engine(monkeypatch)._prepare_image(Image.new("RGBA", (20, 10), (9, 9, 9, 0)))
+        assert out.getpixel((0, 0)) == (255, 255, 255)
 
-    def test_cascade_merge_runs_tesseract_once(self):
-        engine, tess, _ = routed_engine(FakeRouter("merge", policy="cascade"))
-        assert engine.recognize(WHITE) == "hello world"
-        assert tess.recognize_detailed.call_count == 1
+    def test_palette_images_keep_their_colours(self, monkeypatch):
+        image = Image.new("RGB", (20, 10), (200, 30, 30)).convert("P")
+        out = self.engine(monkeypatch)._prepare_image(image)
+        assert out.mode == "RGB" and out.getpixel((0, 0))[0] > 150
 
-    def test_cascade_with_empty_tesseract_result(self):
-        engine, tess, _ = routed_engine(FakeRouter("easyocr", policy="cascade"))
-        tess.recognize_detailed.return_value = ("", None)
-        assert engine.recognize(WHITE) == "hello world"
-        assert engine.router.calls == [(12, None)]
+    def test_palette_transparency_becomes_white(self, monkeypatch):
+        image = Image.new("P", (20, 10), 0)
+        image.putpalette([0, 0, 0] * 256)
+        image.info["transparency"] = 0
+        out = self.engine(monkeypatch)._prepare_image(image)
+        assert out.getpixel((0, 0)) == (255, 255, 255)
 
-    def test_easyocr_unavailable_uses_tesseract(self):
-        engine, tess, easy = routed_engine(FakeRouter("merge"), easy_available=False)
-        assert engine.recognize(WHITE) == "hello plain"
-        assert engine.router.calls == [(12, None)]
-        easy.recognize_detailed.assert_not_called()
+    def test_large_images_are_reduced_to_the_configured_side(self, monkeypatch):
+        out = self.engine(monkeypatch, max_image_size=100)._prepare_image(white((400, 200)))
+        assert out.size == (100, 50)
 
-    def test_easyocr_unavailable_in_cascade_keeps_the_tesseract_text(self):
-        router = FakeRouter("easyocr", policy="cascade")
-        engine, tess, easy = routed_engine(router, easy_available=False)
-        assert engine.recognize(WHITE) == "hello wor1d"
-        assert tess.recognize_detailed.call_count == 1
-        easy.recognize_detailed.assert_not_called()
+    def test_the_caller_image_is_not_modified(self, monkeypatch):
+        image = white((400, 200))
+        self.engine(monkeypatch, max_image_size=100)._prepare_image(image)
+        assert image.size == (400, 200)
 
-    def test_easyocr_failure_falls_back_to_tesseract(self):
-        engine, tess, easy = routed_engine(FakeRouter("easyocr"))
-        easy.recognize_detailed.side_effect = RuntimeError("model download failed")
-        assert engine.recognize(WHITE) == "hello plain"
 
-    def test_easyocr_failure_in_cascade_keeps_the_tesseract_text(self):
-        engine, tess, easy = routed_engine(FakeRouter("merge", policy="cascade"))
-        easy.recognize_detailed.side_effect = RuntimeError("cuda out of memory")
-        assert engine.recognize(WHITE) == "hello wor1d"
-        tess.recognize.assert_not_called()
+class TestBeforeOcr:
+    def test_runs_the_chosen_pipeline_once(self, make):
+        engine, passes = make({"first": "a", "other": "b"})
+        assert engine.recognize(white()) == "b"
+        assert passes == ["other"]
 
-    def test_router_unavailable_uses_tesseract(self):
-        engine, tess, _ = routed_engine(FakeRouter("merge", available=False))
-        assert engine.recognize(WHITE) == "hello plain"
-        assert engine.router.calls == []
+    def test_default_choice_runs_the_default(self, make):
+        engine, passes = make({"first": "a", "other": "b"}, FakeRouter(pick=FIRST))
+        assert engine.recognize(white()) == "a"
+        assert passes == ["first"]
 
-    def test_tesseract_unavailable_uses_easyocr(self):
-        engine, _, easy = routed_engine(FakeRouter("tesseract"), tess_available=False)
-        assert engine.recognize(WHITE) == "hello world"
-        assert engine.router.calls == []
+    def test_empty_result_falls_back_to_the_default(self, make):
+        engine, passes = make({"first": "a", "other": ""})
+        assert engine.recognize(white()) == "a"
+        assert passes == ["other", "first"]
 
-    def test_non_adaptive_ensemble_does_not_consult_the_router(self):
-        router = FakeRouter("tesseract")
-        engine, tess, easy = routed_engine(router)
-        engine._routing_enabled = False
-        assert engine.recognize(WHITE) == "hello world"
+    def test_failing_pipeline_falls_back_to_the_default(self, make):
+        engine, passes = make({"first": "a", "other": RuntimeError("boom")})
+        assert engine.recognize(white()) == "a"
+        assert passes == ["other", "first"]
+
+    def test_accepts_numpy_input(self, make):
+        engine, _ = make({"first": "a", "other": "b"})
+        assert engine.recognize(np.full((60, 200, 3), 255, dtype=np.uint8)) == "b"
+
+
+class TestCascade:
+    def test_first_pass_confidences_reach_the_router(self, make):
+        router = FakeRouter(policy="cascade")
+        engine, passes = make({"first": "a", "other": "b"}, router)
+        assert engine.recognize(white()) == "b"
+        assert passes == ["first", "other"] and router.calls == [[[0.8]]]
+
+    def test_keeping_the_first_pass_costs_one_pass(self, make):
+        engine, passes = make({"first": "a", "other": "b"}, FakeRouter("cascade", pick=FIRST))
+        assert engine.recognize(white()) == "a"
+        assert passes == ["first"]
+
+    def test_empty_second_pass_keeps_the_first_text(self, make):
+        engine, passes = make({"first": "a", "other": ""}, FakeRouter("cascade"))
+        assert engine.recognize(white()) == "a"
+        assert passes == ["first", "other"]
+
+
+class TestNotRouted:
+    def test_routing_switched_off_in_the_config(self, make):
+        router = FakeRouter()
+        engine, passes = make({"first": "a", "other": "b"}, router, routing=False)
+        assert engine.recognize(white()) == "a"
+        assert passes == ["first"] and router.calls == []
+
+    def test_router_without_a_model(self, make):
+        router = FakeRouter(available=False)
+        engine, passes = make({"first": "a", "other": "b"}, router)
+        assert engine.recognize(white()) == "a"
         assert router.calls == []
+
+    def test_an_image_above_the_size_limit_runs_the_large_image_pipeline(self, make):
+        router = FakeRouter()
+        engine, passes = make({"first": "a", "other": "b", LARGE_IMAGE.name: "c"}, router)
+        side = int(MAX_ROUTED_PIXELS**0.5) + 10
+        assert engine.recognize(white((side, side))) == "c"
+        assert passes == [LARGE_IMAGE.name] and router.calls == []
+
+    def test_an_image_above_the_size_limit_with_routing_off(self, make):
+        engine, passes = make({"first": "a", LARGE_IMAGE.name: "c"}, routing=False)
+        side = int(MAX_ROUTED_PIXELS**0.5) + 10
+        assert engine.recognize(white((side, side))) == "c"
+        assert passes == [LARGE_IMAGE.name]
+
+    def test_large_image_pipeline_failure_is_reported(self, make):
+        engine, _ = make({"first": "a", LARGE_IMAGE.name: RuntimeError("boom")})
+        side = int(MAX_ROUTED_PIXELS**0.5) + 10
+        with pytest.raises(OCRError, match="boom"):
+            engine.recognize(white((side, side)))
+
+    def test_feature_extraction_failure(self, make, monkeypatch):
+        engine, passes = make({"first": "a", "other": "b"})
+        monkeypatch.setattr(engine._analyzer, "extract_features", lambda image: 1 / 0)
+        assert engine.recognize(white()) == "a"
+        assert passes == ["first"]
+
+
+class TestLanguages:
+    def engine(self, monkeypatch, language, installed):
+        monkeypatch.setattr("pytesseract.get_tesseract_version", lambda: "5.0")
+        monkeypatch.setattr("pytesseract.get_languages", installed)
+        return OCREngine(Config(ocr_language=language))
+
+    def test_a_missing_language_pack_is_reported(self, monkeypatch):
+        # Tesseract itself drops the missing language and reads garbage with the rest.
+        with pytest.raises(OCRError, match="rus, ell") as error:
+            self.engine(monkeypatch, "eng+rus+ell", lambda config="": ["eng", "osd"])
+        assert "tesseract-data-rus" in str(error.value)
+
+    def test_installed_languages_pass(self, monkeypatch):
+        self.engine(monkeypatch, "eng+rus", lambda config="": ["eng", "osd", "rus"])
+
+    def test_an_unreadable_language_list_does_not_block(self, monkeypatch):
+        def broken(config=""):
+            raise RuntimeError("no list")
+
+        self.engine(monkeypatch, "eng+rus", broken)
+
+
+class TestFailures:
+    def test_tesseract_missing(self, monkeypatch):
+        def missing():
+            raise FileNotFoundError("tesseract is not installed")
+
+        monkeypatch.setattr("pytesseract.get_tesseract_version", missing)
+        with pytest.raises(OCRError, match="Tesseract is not available"):
+            OCREngine(Config())
+
+    def test_default_pipeline_failure_is_reported_not_swallowed(self, make):
+        error = RuntimeError("Failed loading language 'ell'")
+        engine, _ = make({"first": error, "other": "b"}, FakeRouter(pick=FIRST))
+        with pytest.raises(OCRError, match="Failed loading language 'ell'"):
+            engine.recognize(white())
+
+    def test_zero_size_image_is_empty_without_running_tesseract(self, make):
+        engine, passes = make({"first": "a", "other": "b"})
+        assert engine.recognize(np.zeros((0, 0, 3), dtype=np.uint8)) == ""
+        assert passes == []
+
+    @pytest.mark.parametrize("size", [(1, 1), (200, 60)])
+    def test_blank_image_is_empty_after_at_most_two_passes(self, make, size):
+        engine, passes = make({"first": "", "other": ""})
+        assert engine.recognize(white(size)) == ""
+        assert len(passes) <= 2
+
+
+def test_shipped_router_with_a_real_config(monkeypatch):
+    monkeypatch.setattr("pytesseract.get_tesseract_version", lambda: "5.0")
+    passes = []
+    monkeypatch.setattr(
+        "sniptext.ocr.recognize", lambda p, image, lang: (passes.append(p.name), ("x", [[0.9]]))[1]
+    )
+    engine = OCREngine(Config(ocr_language="eng+rus"))
+    assert engine.recognize(white((400, 120))) == "x"
+    assert 1 <= len(passes) <= 2
+    assert passes[0] in {action.name for action in engine.router.actions}
+
+
+@pytest.mark.skipif(shutil.which("tesseract") is None, reason="needs the tesseract binary")
+def test_real_tesseract_reads_rendered_text():
+    image = Image.new("RGB", (520, 90), "white")
+    font = ImageFont.load_default(size=40)
+    ImageDraw.Draw(image).text((20, 20), "Hello world 2026", fill="black", font=font)
+    assert OCREngine(Config()).recognize(image) == "Hello world 2026"

@@ -3,7 +3,7 @@
 pkgname=sniptext
 pkgver=0.3.1
 pkgrel=1
-pkgdesc="Screen text extractor with OCR and spell correction"
+pkgdesc="Screen text extractor: region capture, Tesseract OCR, clipboard"
 arch=('any')
 url="https://github.com/dkorbelainen/sniptext"
 license=('MIT')
@@ -12,7 +12,6 @@ depends=(
     'python'
     'python-numpy'
     'python-pillow'
-    'python-pynput'
     'python-pyyaml'
     'python-loguru'
     'python-pytesseract'
@@ -21,8 +20,6 @@ depends=(
     'libnotify'
 )
 optdepends=(
-    'python-symspellpy: Spell correction for English text'
-    'python-scikit-learn: Adaptive OCR quality analysis'
     'tesseract-data-rus: Russian language support'
     'tesseract-data-ell: Greek language support'
     'tesseract-data-equ: Mathematical equations and symbols'

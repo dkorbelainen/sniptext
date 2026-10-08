@@ -1,227 +1,240 @@
-# OCR engine router benchmark
+# Benchmark
 
-Generated: 2026-10-07. Commit: `5fd5a0e`. Engines run with `eng+rus`.
+Generated: 2026-10-08. Commit: `c094b32`. Tesseract runs with `eng+rus`.
 
-## Task
+## Method
 
-For each screenshot SnipText picks one of three actions: Tesseract, EasyOCR, or both merged by word confidence. The router predicts the character error rate (CER) of each action and takes the one minimising predicted CER plus a time weight times the action's seconds. Two routers are compared: one that sees only image statistics before any OCR, and a cascade that runs Tesseract first and also sees its word confidences.
+A pipeline is a preprocessing chain plus a Tesseract page-segmentation mode. A router predicts the character error rate (CER) of each shipped pipeline and takes the lowest predicted CER plus a time weight times the pipeline's seconds. Two routers are compared: one sees image statistics only; the cascade runs the default pipeline first and also sees its word confidences. An empty result falls back to the default pipeline.
 
-CER is the edit distance to the ground truth over its length, whitespace-normalised, case kept. Averages use CER clipped at 1 so that one garbage output does not dominate; the raw mean is shown next to it. Intervals are 95% bootstrap intervals that resample texts, not images, because renders of one text are not independent.
+CER is the edit distance over the ground-truth length, whitespace-normalised, clipped at 1. Intervals are 95% bootstrap intervals over texts. Differences are paired.
 
 ## Data
 
-3380 images: train 1800, test 600, unseen_font 300, val 600, ood 80. 750 distinct texts (1980 English and 1320 Russian renders; prose 2200, code 660, interface strings 440). Sentences come from UD English-EWT and UD Russian-GSD, code from the CPython 3.12 standard library. Each text is rendered several times with a random font, size from 11 to 30 px, one of six colour schemes and up to two degradations out of blur, noise, JPEG, rescaling and low contrast.
+4180 images from 900 texts: train 1800, test 600, unseen_font 300, val 600, ood 80, browser 200, confirm 600. English (2340) and Russian (1560) renders of prose (2600), code (780) and interface strings (520) from UD English-EWT, UD Russian-GSD and CPython 3.12. Random font, 11 to 30 px, six colour schemes, up to two degradations out of blur, noise, JPEG, rescaling and low contrast.
 
-A text belongs to exactly one of train, validation and test. Two font families appear only in the unseen-font slice. The receipts (SROIE) are never used for fitting or selection.
+Train, validation and test share no text. Receipts, browser pages and fresh texts are not used for fitting or selection. Browser: Google Chrome 151.0.7922.173.
 
-## Result on held-out texts
+## Shipped policy
 
-Router, image features: CER 0.076 [0.063, 0.090], lower than always running Tesseract by 0.026 (paired difference -0.026 [-0.040, -0.012], 95% interval over texts).
+`cascade` over `light_up2_median3_psm6`, `light_gauss1_psm6`: Gradient boosting (100 trees, depth 3, learning rate 0.1), time weight 2.000.
 
-| Policy | CER, clipped at 1 | CER, raw | Median | Regret to oracle | Difference to best static | Tesseract / EasyOCR / merge | Time, ms |
+Out-of-fold CER: Router, cascade 0.057 at 241 ms per image, Router, before OCR 0.061 at 186 ms. The lower one ships.
+
+The rule fixed before the measurement (within 0.005 out-of-fold CER the faster router ships) chose Router, before OCR. Its held-out CER is not distinguishable from the best static pipeline's (-0.012 [-0.024, +0.00004]) and, on images without added noise, higher than it (+0.006 [+0.002, +0.011]). The rule was replaced after the held-out results were seen, so the held-out numbers of the shipped router are not a clean estimate. The fresh texts were generated afterwards.
+
+Criteria, with paired differences. 1 to 3 were fixed before the first measurement, 4 before the fresh texts were read.
+
+1. Lower CER on held-out texts than the best static pipeline: **met** (-0.020 [-0.031, -0.011]).
+2. Not worse than the 0.4 router, which needs EasyOCR: **met** (-0.018 [-0.029, -0.008]).
+3. Not worse than the best static pipeline on browser pages: **met** (+0.000 [+0.000, +0.000]).
+4. Lower CER on fresh texts than the best static pipeline: **met** (-0.007 [-0.013, -0.002]).
+
+## Results
+
+CER with its interval, paired difference to the best static pipeline, mean time per image. The 0.4 router's times are from a GPU run and not comparable.
+
+### Fresh texts
+
+No six-word run shared with any other slice. Generated after the shipped policy was fixed.
+
+| Policy | CER | Difference to best static | Time, ms |
+|---|---|---|---|
+| Router, before OCR | 0.072 [0.057, 0.089] | -0.005 [-0.014, +0.004] | 164 |
+| **Router, cascade (shipped)** | 0.070 [0.056, 0.085] | -0.007 [-0.013, -0.002] | 207 |
+| Always `light_up2_median3_psm6` (best static) | 0.077 [0.062, 0.093] |  | 203 |
+| Always `light_gauss1_psm6` | 0.112 [0.092, 0.133] | +0.035 [+0.021, +0.049] | 150 |
+| Always `enhance_auto` (0.4 Tesseract) | 0.115 [0.095, 0.137] | +0.039 [+0.023, +0.055] | 172 |
+| Oracle over the shipped pipelines | 0.057 [0.044, 0.071] | -0.020 [-0.028, -0.013] | 187 |
+| Oracle over the whole pool | 0.040 [0.030, 0.051] | -0.037 [-0.047, -0.027] | 165 |
+
+Shipped policy against 0.4 Tesseract (`enhance_auto`): -0.045 [-0.062, -0.030].
+
+### Held-out texts
+
+| Policy | CER | Difference to best static | Time, ms |
+|---|---|---|---|
+| Router, before OCR | 0.067 [0.054, 0.081] | -0.012 [-0.024, +0.00004] | 173 |
+| **Router, cascade (shipped)** | 0.058 [0.046, 0.071] | -0.020 [-0.031, -0.011] | 242 |
+| Always `light_up2_median3_psm6` (best static) | 0.079 [0.063, 0.096] |  | 236 |
+| Always `light_gauss1_psm6` | 0.090 [0.074, 0.105] | +0.011 [-0.004, +0.025] | 160 |
+| Always `enhance_auto` (0.4 Tesseract) | 0.103 [0.084, 0.123] | +0.024 [+0.010, +0.038] | 172 |
+| 0.4 router (needs EasyOCR) | 0.076 [0.062, 0.091] | -0.002 [-0.016, +0.012] | 130 |
+| Oracle over the shipped pipelines | 0.048 [0.038, 0.059] | -0.031 [-0.042, -0.021] | 210 |
+| Oracle over the whole pool | 0.031 [0.024, 0.040] | -0.047 [-0.060, -0.035] | 172 |
+
+Shipped policy against 0.4 Tesseract (`enhance_auto`): -0.044 [-0.059, -0.030]; against the 0.4 router: -0.018 [-0.029, -0.008].
+
+### Unseen fonts
+
+Two font families used in no other slice.
+
+| Policy | CER | Difference to best static | Time, ms |
+|---|---|---|---|
+| Router, before OCR | 0.057 [0.039, 0.078] | -0.007 [-0.017, +0.003] | 171 |
+| **Router, cascade (shipped)** | 0.061 [0.043, 0.081] | -0.003 [-0.008, +0.000] | 222 |
+| Always `light_up2_median3_psm6` (best static) | 0.064 [0.045, 0.085] |  | 221 |
+| Always `light_gauss1_psm6` | 0.088 [0.066, 0.111] | +0.024 [+0.007, +0.041] | 158 |
+| Always `enhance_auto` (0.4 Tesseract) | 0.074 [0.052, 0.097] | +0.010 [-0.005, +0.025] | 168 |
+| 0.4 router (needs EasyOCR) | 0.067 [0.048, 0.089] | +0.003 [-0.010, +0.017] | 134 |
+| Oracle over the shipped pipelines | 0.048 [0.032, 0.065] | -0.016 [-0.025, -0.009] | 202 |
+| Oracle over the whole pool | 0.034 [0.021, 0.049] | -0.030 [-0.043, -0.019] | 165 |
+
+Shipped policy against 0.4 Tesseract (`enhance_auto`): -0.013 [-0.028, +0.001]; against the 0.4 router: -0.006 [-0.019, +0.006].
+
+### Browser pages
+
+Held-out texts rendered by headless Chrome: light and dark themes, device scale 1, 1.5 and 2, no degradation.
+
+| Policy | CER | Difference to best static | Time, ms |
+|---|---|---|---|
+| Router, before OCR | 0.009 [0.005, 0.013] | +0.002 [-0.001, +0.006] | 171 |
+| **Router, cascade (shipped)** | 0.007 [0.004, 0.009] | +0.000 [+0.000, +0.000] | 205 |
+| Always `light_up2_median3_psm6` (best static) | 0.007 [0.004, 0.009] |  | 205 |
+| Always `light_gauss1_psm6` | 0.049 [0.033, 0.066] | +0.042 [+0.027, +0.059] | 152 |
+| Always `enhance_auto` (0.4 Tesseract) | 0.012 [0.007, 0.018] | +0.005 [+0.001, +0.011] | 154 |
+| Oracle over the shipped pipelines | 0.005 [0.003, 0.007] | -0.002 [-0.003, -0.001] | 195 |
+| Oracle over the whole pool | 0.003 [0.001, 0.005] | -0.004 [-0.005, -0.002] | 160 |
+
+Shipped policy against 0.4 Tesseract (`enhance_auto`): -0.005 [-0.011, -0.001].
+
+### Receipts
+
+Photographed receipts (SROIE).
+
+| Policy | CER | Difference to best static | Time, ms |
+|---|---|---|---|
+| Router, before OCR | 0.368 [0.343, 0.393] | -0.005 [-0.012, +0.002] | 939 |
+| **Router, cascade (shipped)** | 0.374 [0.348, 0.400] | +0.002 [-0.001, +0.005] | 1469 |
+| Always `light_up2_median3_psm6` (best static) | 0.373 [0.347, 0.398] |  | 1766 |
+| Always `light_gauss1_psm6` | 0.386 [0.361, 0.411] | +0.013 [+0.002, +0.024] | 714 |
+| Always `enhance_auto` (0.4 Tesseract) | 0.381 [0.355, 0.406] | +0.008 [-0.002, +0.017] | 698 |
+| 0.4 router (needs EasyOCR) | 0.417 [0.386, 0.450] | +0.045 [+0.023, +0.070] | 572 |
+| Oracle over the shipped pipelines | 0.360 [0.335, 0.384] | -0.013 [-0.020, -0.008] | 1230 |
+| Oracle over the whole pool | 0.350 [0.325, 0.375] | -0.023 [-0.031, -0.016] | 951 |
+
+Shipped policy against 0.4 Tesseract (`enhance_auto`): -0.006 [-0.015, +0.003]; against the 0.4 router: -0.043 [-0.068, -0.021].
+
+## Added noise
+
+Mean CER per group, then paired differences. The split was not planned before the measurement.
+
+### Fresh texts
+
+| Group | n | Router, before OCR | Router, cascade | Always `light_up2_median3_psm6` (best static) | Always `light_gauss1_psm6` | Always `enhance_auto` (0.4 Tesseract) |
+|---|---|---|---|---|---|---|
+| with added noise | 125 | 0.158 | 0.163 | 0.195 | 0.185 | 0.371 |
+| without added noise | 475 | 0.050 | 0.046 | 0.046 | 0.092 | 0.048 |
+
+| Group | Router | Difference to best static | Difference to 0.4 Tesseract |
+|---|---|---|---|
+| with added noise | Router, before OCR | -0.036 [-0.077, +0.002] | -0.212 [-0.281, -0.149] |
+| with added noise | Router, cascade | -0.032 [-0.061, -0.008] | -0.207 [-0.276, -0.144] |
+| without added noise | Router, before OCR | +0.004 [-0.001, +0.009] | +0.001 [-0.006, +0.008] |
+| without added noise | Router, cascade | -0.000 [-0.00030, +0.000] | -0.003 [-0.009, +0.003] |
+
+### Held-out texts
+
+| Group | n | Router, before OCR | Router, cascade | Always `light_up2_median3_psm6` (best static) | Always `light_gauss1_psm6` | Always `enhance_auto` (0.4 Tesseract) | 0.4 router (needs EasyOCR) |
 |---|---|---|---|---|---|---|---|
-| Always Tesseract | 0.103 [0.084, 0.124] | 0.121 | 0.004 | 0.040 [0.028, 0.053] |  | 100% / 0% / 0% | 150 |
-| Always EasyOCR | 0.308 [0.276, 0.340] | 0.308 | 0.132 | 0.245 [0.215, 0.276] |  | 0% / 100% / 0% | 43 |
-| Always merge | 0.114 [0.096, 0.134] | 0.125 | 0.024 | 0.052 [0.040, 0.065] |  | 0% / 0% / 100% | 193 |
-| Previous selector (rules) | 0.128 [0.106, 0.150] | 0.146 | 0.014 | 0.065 [0.051, 0.081] | +0.025 [+0.014, +0.037] | 44% / 0% / 56% | 172 |
-| **Router, image features (shipped)** | 0.076 [0.063, 0.090] | 0.086 | 0.005 | 0.014 [0.008, 0.021] | -0.026 [-0.040, -0.012] | 83% / 12% / 4% | 130 |
-| Router, cascade | 0.074 [0.061, 0.089] | 0.085 | 0.004 | 0.012 [0.007, 0.018] | -0.029 [-0.041, -0.017] | 93% / 4% / 4% | 153 |
-| Oracle (lower bound) | 0.062 [0.050, 0.075] | 0.071 | 0.000 | 0.000 [0.000, 0.000] | -0.040 [-0.053, -0.028] | 89% / 8% / 3% | 135 |
+| with added noise | 148 | 0.129 | 0.112 | 0.195 | 0.158 | 0.300 | 0.194 |
+| without added noise | 452 | 0.047 | 0.040 | 0.040 | 0.067 | 0.038 | 0.038 |
 
-The shipped policy is `pre_ocr`: Gradient boosting (100 trees, depth 2, learning rate 0.05), time weight 0.567. It is scored through `sniptext.router.Router`, the class the app uses, fitted from the table packaged with the app. "Best static" is always running Tesseract, chosen on train and validation.
+| Group | Router | Difference to best static | Difference to 0.4 Tesseract |
+|---|---|---|---|
+| with added noise | Router, before OCR | -0.067 [-0.114, -0.021] | -0.172 [-0.229, -0.116] |
+| with added noise | Router, cascade | -0.083 [-0.125, -0.047] | -0.188 [-0.243, -0.137] |
+| without added noise | Router, before OCR | +0.006 [+0.002, +0.011] | +0.009 [+0.001, +0.016] |
+| without added noise | Router, cascade | +0.000 [+0.000, +0.00018] | +0.003 [-0.004, +0.009] |
 
-Of the two routers the one with the lower out-of-fold CER ships, or the faster one when they are within 0.005: Router, image features has 0.075 at 131 ms per image, Router, cascade 0.070 at 148 ms.
+## By degradation
 
-## Unseen fonts
+Held-out texts.
 
-Router, image features: CER 0.067 [0.047, 0.089], not distinguishable from always running Tesseract (paired difference -0.006 [-0.019, +0.005], 95% interval over texts).
+| Group | n | Always `light_up2_median3_psm6` (best static) | Always `enhance_auto` (0.4 Tesseract) | Router, cascade | Oracle over the shipped pipelines |
+|---|---|---|---|---|---|
+| blur | 65 | 0.047 | 0.036 | 0.047 | 0.038 |
+| lowcontrast | 56 | 0.007 | 0.006 | 0.007 | 0.005 |
+| noise | 80 | 0.182 | 0.334 | 0.074 | 0.057 |
+| two combined | 146 | 0.156 | 0.176 | 0.132 | 0.108 |
+| none | 135 | 0.009 | 0.010 | 0.009 | 0.008 |
+| jpeg | 57 | 0.033 | 0.042 | 0.033 | 0.029 |
+| rescale | 61 | 0.053 | 0.046 | 0.053 | 0.051 |
 
-| Policy | CER, clipped at 1 | CER, raw | Median | Regret to oracle | Difference to best static | Tesseract / EasyOCR / merge | Time, ms |
-|---|---|---|---|---|---|---|---|
-| Always Tesseract | 0.074 [0.052, 0.098] | 0.087 | 0.000 | 0.015 [0.005, 0.027] |  | 100% / 0% / 0% | 143 |
-| Always EasyOCR | 0.329 [0.288, 0.373] | 0.329 | 0.146 | 0.270 [0.232, 0.310] |  | 0% / 100% / 0% | 43 |
-| Always merge | 0.112 [0.089, 0.138] | 0.126 | 0.023 | 0.053 [0.038, 0.070] |  | 0% / 0% / 100% | 185 |
-| Previous selector (rules) | 0.105 [0.082, 0.133] | 0.119 | 0.014 | 0.046 [0.031, 0.065] | +0.032 [+0.016, +0.049] | 37% / 0% / 63% | 171 |
-| **Router, image features (shipped)** | 0.067 [0.047, 0.089] | 0.081 | 0.000 | 0.008 [0.003, 0.016] | -0.006 [-0.019, +0.005] | 88% / 8% / 4% | 134 |
-| Router, cascade | 0.062 [0.043, 0.084] | 0.076 | 0.000 | 0.003 [0.001, 0.007] | -0.011 [-0.023, -0.001] | 96% / 1% / 3% | 144 |
-| Oracle (lower bound) | 0.059 [0.039, 0.080] | 0.073 | 0.000 | 0.000 [0.000, 0.000] | -0.015 [-0.027, -0.005] | 92% / 6% / 2% | 137 |
-
-## Out-of-domain receipts
-
-Photographed receipts are unlike anything in the training data. This slice shows what the router does outside its domain.
-
-Router, image features: CER 0.417 [0.385, 0.450], higher than always running Tesseract by 0.037 (paired difference +0.037 [+0.015, +0.060], 95% interval over texts).
-
-| Policy | CER, clipped at 1 | CER, raw | Median | Regret to oracle | Difference to best static | Tesseract / EasyOCR / merge | Time, ms |
-|---|---|---|---|---|---|---|---|
-| Always Tesseract | 0.381 [0.354, 0.408] | 0.381 | 0.387 | 0.003 [0.001, 0.006] |  | 100% / 0% / 0% | 650 |
-| Always EasyOCR | 0.615 [0.576, 0.655] | 0.615 | 0.626 | 0.238 [0.204, 0.274] |  | 0% / 100% / 0% | 467 |
-| Always merge | 0.546 [0.505, 0.587] | 0.546 | 0.535 | 0.169 [0.135, 0.204] |  | 0% / 0% / 100% | 1118 |
-| Previous selector (rules) | 0.477 [0.433, 0.525] | 0.477 | 0.439 | 0.100 [0.067, 0.137] | +0.096 [+0.063, +0.134] | 57% / 0% / 42% | 842 |
-| **Router, image features (shipped)** | 0.417 [0.385, 0.450] | 0.417 | 0.425 | 0.040 [0.019, 0.063] | +0.037 [+0.015, +0.060] | 78% / 22% / 0% | 572 |
-| Router, cascade | 0.465 [0.427, 0.505] | 0.465 | 0.439 | 0.088 [0.054, 0.125] | +0.084 [+0.050, +0.123] | 69% / 20% / 11% | 797 |
-| Oracle (lower bound) | 0.377 [0.352, 0.403] | 0.377 | 0.378 | 0.000 [0.000, 0.000] | -0.003 [-0.006, -0.001] | 88% / 5% / 8% | 673 |
-
-## Accuracy against time
+## Time
 
 ![CER against time](img/cer_time.png)
 
-Each line traces one router as the time weight grows from 0. Times are measured on this machine with EasyOCR on a GPU.
+One line per router as the time weight grows from 0.
 
-Router, image features spans 87 to 146 ms and CER 0.072 to 0.124; Router, cascade spans 153 to 154 ms and CER 0.074 to 0.075. The cascade runs Tesseract on every image, so its time cannot fall below Tesseract's.
+One process, one machine, one-minute load average 3.7 to 5.7. Feature extraction (5.9 ms per image) is not included.
 
-On a CPU EasyOCR is 4.5 times slower (measured on a sample of images). The table scales EasyOCR times by that factor, on held-out texts. The app does not know the device, so on a CPU it runs the "as shipped" row: the same choices as above at CPU cost. The rows with the weight re-chosen show what the same rule would pick from CPU times; the app does not do that.
+## Pipeline selection
 
-| Policy | CER | Time, ms | Time weight |
+13 candidates; `enhance_auto` is the pipeline of 0.4.
+
+| Pipeline | Steps | PSM | CER on train and validation | Time, ms |
+|---|---|---|---|---|
+| `light_up2_median3_psm6` (selected) | light, up2, median3 | 6 | 0.068 | 238 |
+| `light_up2_median3_auto` | light, up2, median3 | auto | 0.072 | 240 |
+| `light_psm6` | light | 6 | 0.074 | 150 |
+| `light_up2_psm6` | light, up2 | 6 | 0.077 | 209 |
+| `light_up2_auto` | light, up2 | auto | 0.081 | 208 |
+| `enhance_auto` | enhance | auto | 0.090 | 181 |
+| `enhance_psm6` | enhance | 6 | 0.090 | 181 |
+| `light_gauss1_psm6` (selected) | light, gauss1 | 6 | 0.091 | 160 |
+| `light_psm11` | light | 11 | 0.092 | 147 |
+| `light_median3_psm6` | light, median3 | 6 | 0.128 | 167 |
+| `light_auto` | light | auto | 0.216 | 144 |
+| `light_gauss1_auto` | light, gauss1 | auto | 0.238 | 154 |
+| `light_median3_auto` | light, median3 | auto | 0.254 | 158 |
+
+Greedy on train and validation texts: start from the best static pipeline, add the candidate that lowers out-of-fold CER most, stop below a gain of 0.003 or at four pipelines.
+
+| Step | Pipeline | Out-of-fold CER of the routed set | Oracle over the set |
 |---|---|---|---|
-| Always Tesseract | 0.103 | 150 | |
-| Always EasyOCR | 0.308 | 192 | |
-| Always merge | 0.114 | 342 | |
-| Router, image features, as shipped | 0.076 | 156 | 0.567 |
-| Router, image features, weight re-chosen | 0.072 | 146 | 2.000 |
-| Router, cascade, weight re-chosen | 0.077 | 156 | 2.000 |
+| 1 | `light_up2_median3_psm6` | 0.068 | 0.068 |
+| 2 | `light_gauss1_psm6` | 0.057 | 0.045 |
+| 3 | `light_up2_psm6` (rejected) | 0.056 | 0.040 |
 
 ## Model selection
 
-Candidates are compared by grouped 5-fold cross-validation over train and validation texts (a text is never in both the fitting and the predicted fold), on the regret of the resulting policy to the oracle. The default time weight is the largest one that keeps out-of-fold CER within 0.005 of the accuracy-only policy.
+Grouped 5-fold cross-validation over train and validation texts, ranked by regret to the oracle. The time weight is the largest that keeps out-of-fold CER within 0.005 of the accuracy-only policy.
 
-### Router, image features
+| Router | Best candidate | Out-of-fold CER | Regret to oracle |
+|---|---|---|---|
+| Router, before OCR | Gradient boosting (100 trees, depth 2, learning rate 0.05) | 0.057 | 0.011 |
+| Router, before OCR | Ridge regression (alpha 1) | 0.058 | 0.013 |
+| Router, cascade | Gradient boosting (100 trees, depth 3, learning rate 0.1) | 0.053 | 0.008 |
+| Router, cascade | Ridge regression (alpha 1) | 0.055 | 0.010 |
 
-| Candidate | Out-of-fold CER | Regret to oracle |
-|---|---|---|
-| Gradient boosting (100 trees, depth 2, learning rate 0.05) | 0.073 | 0.012 |
-| Gradient boosting (100 trees, depth 3, learning rate 0.05) | 0.073 | 0.012 |
-| Gradient boosting (300 trees, depth 2, learning rate 0.05) | 0.075 | 0.014 |
-| Gradient boosting (100 trees, depth 3, learning rate 0.1) | 0.075 | 0.014 |
-| Gradient boosting (100 trees, depth 2, learning rate 0.1) | 0.075 | 0.014 |
-| Gradient boosting (300 trees, depth 3, learning rate 0.05) | 0.077 | 0.016 |
-| Gradient boosting (300 trees, depth 2, learning rate 0.1) | 0.077 | 0.016 |
-| Ridge regression (alpha 10) | 0.078 | 0.017 |
-| Gradient boosting (300 trees, depth 3, learning rate 0.1) | 0.078 | 0.017 |
-| Ridge regression (alpha 0.1) | 0.079 | 0.017 |
-| Ridge regression (alpha 1) | 0.079 | 0.017 |
+The shipped router has 17 inputs. Removing any one changes out-of-fold CER by at most +0.001. Shuffling one on held-out texts changes CER most for `tess_conf_mean` +0.016, `contrast` +0.002, `width` +0.001.
 
-Out-of-fold at its default time weight 0.567: CER 0.075, 131 ms per image.
+## Removed components
 
-### Router, cascade
+EasyOCR (needs torch, about 2 GB): on the 2400 train and validation images of the 0.4 run, an oracle over the three actions of 0.4 reaches CER 0.061, an oracle over the shipped pipelines 0.045, and 0.043 with EasyOCR added.
 
-| Candidate | Out-of-fold CER | Regret to oracle |
-|---|---|---|
-| Gradient boosting (100 trees, depth 3, learning rate 0.05) | 0.069 | 0.008 |
-| Gradient boosting (100 trees, depth 2, learning rate 0.05) | 0.069 | 0.008 |
-| Gradient boosting (300 trees, depth 2, learning rate 0.05) | 0.070 | 0.009 |
-| Gradient boosting (100 trees, depth 3, learning rate 0.1) | 0.070 | 0.009 |
-| Gradient boosting (100 trees, depth 2, learning rate 0.1) | 0.070 | 0.009 |
-| Gradient boosting (300 trees, depth 2, learning rate 0.1) | 0.071 | 0.010 |
-| Gradient boosting (300 trees, depth 3, learning rate 0.05) | 0.072 | 0.011 |
-| Gradient boosting (300 trees, depth 3, learning rate 0.1) | 0.074 | 0.013 |
-| Ridge regression (alpha 10) | 0.076 | 0.015 |
-| Ridge regression (alpha 1) | 0.077 | 0.016 |
-| Ridge regression (alpha 0.1) | 0.077 | 0.016 |
-
-Out-of-fold at its default time weight 2.000: CER 0.070, 148 ms per image.
-
-Tesseract is called through `image_to_data` (`detailed` call); its text differs from `image_to_string` by +0.000 mean CER on train and validation.
-
-## Features
-
-Inputs of the shipped router. Extraction takes 1.6 ms per image on average.
-
-| Input | CER change when removed (out-of-fold) | CER change when shuffled (test) |
-|---|---|---|
-| noise_level | +0.001 | +0.028 |
-| contrast | +0.001 | +0.003 |
-| brightness | +0.001 | +0.001 |
-| sharpness | +0.001 | +0.000 |
-| edge_density | +0.000 | +0.002 |
-| size_ratio | +0.000 | +0.001 |
-| has_color | +0.000 | +0.000 |
-| text_height | +0.000 | +0.002 |
-| width | -0.000 | +0.000 |
-| height | -0.000 | -0.001 |
-| text_density | -0.000 | +0.006 |
-| jpeg_blockiness | -0.000 | -0.001 |
-
-## Breakdown
-
-Mean clipped CER on held-out texts.
-
-### By degradation
-
-| Group | n | Always Tesseract | Always EasyOCR | Always merge | Router, image features | Oracle (lower bound) |
-|---|---|---|---|---|---|---|
-| blur | 65 | 0.036 | 0.326 | 0.053 | 0.036 | 0.036 |
-| lowcontrast | 56 | 0.006 | 0.136 | 0.040 | 0.006 | 0.005 |
-| noise | 80 | 0.334 | 0.172 | 0.155 | 0.140 | 0.087 |
-| two combined | 146 | 0.176 | 0.534 | 0.208 | 0.174 | 0.148 |
-| none | 135 | 0.010 | 0.131 | 0.053 | 0.010 | 0.010 |
-| jpeg | 57 | 0.042 | 0.343 | 0.096 | 0.042 | 0.040 |
-| rescale | 61 | 0.046 | 0.441 | 0.121 | 0.046 | 0.045 |
-
-### By colour scheme
-
-| Group | n | Always Tesseract | Always EasyOCR | Always merge | Router, image features | Oracle (lower bound) |
-|---|---|---|---|---|---|---|
-| paper | 96 | 0.095 | 0.277 | 0.134 | 0.081 | 0.070 |
-| light | 103 | 0.042 | 0.265 | 0.081 | 0.053 | 0.035 |
-| solarized_dark | 100 | 0.109 | 0.356 | 0.096 | 0.074 | 0.052 |
-| terminal | 104 | 0.153 | 0.319 | 0.121 | 0.074 | 0.070 |
-| dark | 96 | 0.064 | 0.273 | 0.108 | 0.068 | 0.045 |
-| solarized_light | 101 | 0.150 | 0.354 | 0.147 | 0.109 | 0.101 |
-
-### By language
-
-| Group | n | Always Tesseract | Always EasyOCR | Always merge | Router, image features | Oracle (lower bound) |
-|---|---|---|---|---|---|---|
-| en | 360 | 0.109 | 0.332 | 0.130 | 0.089 | 0.070 |
-| ru | 240 | 0.093 | 0.271 | 0.090 | 0.058 | 0.051 |
-
-### By content
-
-| Group | n | Always Tesseract | Always EasyOCR | Always merge | Router, image features | Oracle (lower bound) |
-|---|---|---|---|---|---|---|
-| prose | 400 | 0.089 | 0.302 | 0.087 | 0.062 | 0.052 |
-| code | 120 | 0.148 | 0.419 | 0.228 | 0.130 | 0.111 |
-| ui | 80 | 0.103 | 0.169 | 0.081 | 0.065 | 0.043 |
-
-## The previous selector
-
-Before this router SnipText chose between Tesseract and the merge with fixed thresholds on image statistics and a classifier fitted on hand-made feature ranges. On held-out texts it scores CER 0.128 [0.106, 0.150] and picks the merge for 56% of images.
-
-It also retrained itself on a label derived from a text-quality score of the two outputs. Compared with the action that really had the lower CER, that label agrees on 36% of 3300 synthetic images (Cohen's kappa 0.03); it names the merge for 70% of images while the merge is better on 9%. Online retraining was removed for that reason.
-
-## Confidence calibration
-
-Per-word confidence against word correctness. ECE is the population-weighted gap between confidence and accuracy over 10 bins. The calibrated column refits an isotonic map on 70% of the images and measures on the rest.
-
-| Domain | Words | Accuracy | Mean confidence | ECE raw | ECE calibrated |
-|---|---|---|---|---|---|
-| sroie | 14574 | 0.420 | 0.779 | 0.397 | 0.045 |
-| synthetic | 100115 | 0.818 | 0.855 | 0.040 | 0.010 |
-| all | 114689 | 0.768 | 0.846 | 0.087 | 0.012 |
-
-![Reliability diagram](img/reliability.png)
-
-The merge replayed on held-out texts with three ways of resolving disagreements:
-
-| Domain | Images | CER, text heuristic | CER, raw confidence | CER, calibrated |
-|---|---|---|---|---|
-| sroie | 24 | 0.502 | 0.561 | 0.483 |
-| synthetic | 990 | 0.132 | 0.105 | 0.087 |
-| all | 1014 | 0.141 | 0.116 | 0.096 |
+Spelling corrector, 600 validation images: CER 0.048 [0.036, 0.062] without it, 0.051 [0.038, 0.065] with it, paired difference +0.003 [+0.002, +0.004]; it changes 19% of texts. It was removed.
 
 ## Limitations
 
-- The images are rendered, not captured. Real screenshots have anti-aliasing, mixed fonts, icons and layouts this corpus does not cover; no manually transcribed screenshots are included.
-- English and Russian only, with engines configured for both. A single-language setup may rank the engines differently.
-- Times are from one machine. The time weight trades error for seconds as measured there.
-- Times are measured with both engines loaded. The first capture of a process that goes to EasyOCR also pays for importing it and loading its models, which the router's cost does not include; a one-shot run pays that on every such capture.
-- EasyOCR reports one confidence per detected line; the word-level merge treats it as the confidence of every word in the line.
+- Degradations are synthetic; noise and heavy JPEG are rarer in real captures.
+- No captures of real applications and no manually transcribed screenshots.
+- English and Russian only.
+- Times are from one machine.
+- Train and validation images are at most 0.323 megapixels and pipeline costs are means over them. Images up to 2 megapixels are routed, where upscaling costs more (see the receipt times).
+- The candidate pool followed a finding on the held-out slice of the 0.4 run (the second engine helped mostly on noisy images), so that slice is not blind to the pool.
+- Images above 2 megapixels run `enhance_auto` unrouted; the rule was set after the receipt timings were seen. 11 images here are that large.
 
 ## Reproduce
 
 ```bash
-venv/bin/python benchmarks/run_eval.py      # engines over the corpus, resumable
-venv/bin/python benchmarks/train_router.py  # selection, evaluation, packaged table
-venv/bin/python benchmarks/report.py        # this file and its figures
+venv/bin/python benchmarks/browser.py            # browser pages (needs Chrome)
+venv/bin/python benchmarks/run_eval.py           # every pipeline over the corpus
+venv/bin/python benchmarks/run_eval.py --timing  # timings, on an idle machine
+venv/bin/python benchmarks/train_router.py       # selection, evaluation, packaged model
+venv/bin/python benchmarks/report.py             # this file and its figure
 ```
+
+0.4 rows: `benchmarks/legacy_v04.json`, frozen from 0.4.0.
+
+Corrector numbers: `benchmarks/corrector_eval.json`, measured before its removal.

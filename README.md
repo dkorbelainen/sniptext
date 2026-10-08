@@ -2,89 +2,54 @@
 
 [![CI](https://github.com/dkorbelainen/sniptext/actions/workflows/ci.yml/badge.svg)](https://github.com/dkorbelainen/sniptext/actions/workflows/ci.yml)
 
-Screen text extractor with OCR and spell correction for Arch Linux.
+Select a screen region; Tesseract reads it and the text lands in the clipboard.
 
-**Simple workflow:** Hotkey → Select area → Text in clipboard
-
-## Features
-
-- **Adaptive OCR**: picks Tesseract, EasyOCR or their merge per image; measured in [docs/benchmark.md](docs/benchmark.md)
-- **Multi-language**: 100+ languages via Tesseract (English, Russian, Greek, Math symbols, etc.)
-- **Spell correction**: Automatic text correction for better results
-- **Works everywhere**: Wayland and X11 support
-- **GPU acceleration**: CUDA support when available
-
-## Installation
+## Install
 
 ```bash
-yay -S sniptext
+yay -S sniptext        # Arch Linux
+pip install .          # from source
 ```
 
-**Important:** Set up a keyboard shortcut after installation. See [KEYBINDINGS.md](KEYBINDINGS.md)
+Needs Tesseract, plus `slurp`, `grim` and `wl-clipboard` on Wayland or `maim` and `xclip` on X11. Bind a key to `sniptext --capture-now`: [KEYBINDINGS.md](KEYBINDINGS.md).
 
 ## Usage
 
-1. Press your keybind (default: `Ctrl+Alt+T`)
-2. Select screen area
-3. Text copied to clipboard
-
-**Test:** `sniptext --capture-now`
-
-**Additional flags:**
-- `--interactive` / `-i` — Review and edit OCR result before copying
-- `--benchmark IMAGE` — Benchmark all OCR engines on an image
-- `--file IMAGE` — Run OCR on a file without capturing
-
-See `sniptext --help` for complete options and `sniptext --print-config` for current settings.
-
-## Language Support
-
-Install additional language packs:
-
 ```bash
-sudo pacman -S tesseract-data-rus     # Russian
-sudo pacman -S tesseract-data-ell     # Greek
-sudo pacman -S tesseract-data-equ     # Math symbols
-# See all: pacman -Ss tesseract-data
-```
-
-Update config: `~/.config/sniptext/config.yaml`
-```yaml
-ocr_language: eng+rus+equ  # English + Russian + Math
-```
-
-**Full guide:** [LANGUAGES.md](LANGUAGES.md)
-
-## Configuration
-
-Config: `~/.config/sniptext/config.yaml` (auto-created on first run with inline comments)
-
-View all options with descriptions:
-```bash
+sniptext                      # select a region, recognise it, copy the text
+sniptext --file IMAGE         # recognise an image file instead
+sniptext --output FILE        # also write the text to FILE
+sniptext --history [N]        # print the last N captured texts (default 10)
+sniptext --profile NAME       # apply ~/.config/sniptext/profiles/NAME.yaml
+sniptext --list-profiles
 sniptext --print-config
 ```
 
-Key settings:
-```yaml
-ocr_engine: ensemble        # ensemble, tesseract, or easyocr
-ocr_language: eng           # See LANGUAGES.md for codes
-adaptive_ensemble: true     # Choose the OCR engine per image
-enable_text_correction: true
-notification_enabled: true
-use_gpu: true               # CUDA acceleration
-```
+`-c FILE` selects another config file, `-v` enables debug logging.
 
-**Adaptive OCR:** a small model predicts the error rate of each engine for the captured image and picks the engine with the best accuracy for its time. Set `router_time_weight: 0` to ignore time. Method and results: [docs/benchmark.md](docs/benchmark.md).
+Exit codes: 0 on success or when no text was found, 1 when the capture, the OCR or the clipboard failed, 2 for an unreadable image file or bad arguments.
 
-**Note:** Optional features (spell correction, EasyOCR, ML analysis) are auto-detected when installed.
+## How it works
 
+Every capture is read with a default preprocessing pipeline. From 12 image statistics and the word confidences of that pass, a gradient-boosting model predicts the character error rate of a second pipeline, which runs only when it is expected to pay for its time. The two pipelines were selected from 13 candidates. The model is fitted with scikit-learn and ships as a JSON file evaluated with numpy.
 
-## Optional Dependencies
+Benchmark: [docs/benchmark.md](docs/benchmark.md).
 
-All optional dependencies are auto-detected. Install to enable features:
+## Configuration
 
-```bash
-yay -S python-symspellpy      # Spell correction (English)
-yay -S python-scikit-learn    # Engine routing
-yay -S python-easyocr         # High-accuracy OCR (slower, GPU recommended)
-```
+`~/.config/sniptext/config.yaml` is created on first run.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `ocr_language` | `eng` | Tesseract language codes, joined with `+` |
+| `routing` | `true` | Choose the pipeline per image; `false` runs only the default one |
+| `router_time_weight` | blank | CER traded per second; blank uses the benchmarked value, `0` ignores time |
+| `max_image_size` | `4096` | Larger images are reduced to this side before OCR |
+| `notification_enabled` | `true` | Desktop notification after a capture |
+| `history_enabled` | `true` | Keep captured texts for `--history` |
+| `history_size` | `50` | Number of texts kept |
+| `display_server` | `auto` | `auto`, `wayland` or `x11` |
+
+Images above 2 megapixels always run the preprocessing of version 0.4.
+
+Other languages: [LANGUAGES.md](LANGUAGES.md). The router was fitted and measured with `eng+rus`.

@@ -1,38 +1,16 @@
 """Tests for Config."""
 
-from pathlib import Path
-
 import pytest
 
 from sniptext.config import Config
 
 
 class TestConfigDefaults:
-    def test_hotkey(self):
-        assert Config().hotkey == "<ctrl>+<alt>+t"
-
     def test_max_image_size_default(self):
         assert Config().max_image_size == 4096
 
-    def test_use_gpu_default(self):
-        assert Config().use_gpu is True
-
     def test_ocr_language(self):
         assert Config().ocr_language == "eng"
-
-    def test_ocr_engine(self):
-        assert Config().ocr_engine == "ensemble"
-
-    def test_model_path_set(self):
-        config = Config()
-        assert config.ocr_model_path is not None
-        assert isinstance(config.ocr_model_path, Path)
-
-    def test_text_correction_enabled_by_default(self):
-        assert Config().enable_text_correction is True
-
-    def test_adaptive_ensemble_enabled_by_default(self):
-        assert Config().adaptive_ensemble is True
 
 
 class TestConfigSaveLoad:
@@ -43,10 +21,8 @@ class TestConfigSaveLoad:
 
         loaded = Config.load(config_path)
 
-        assert loaded.hotkey == original.hotkey
         assert loaded.ocr_language == original.ocr_language
-        assert loaded.ocr_engine == original.ocr_engine
-        assert loaded.enable_text_correction == original.enable_text_correction
+        assert loaded.routing == original.routing
 
     def test_load_creates_file_if_missing(self, tmp_path):
         config_path = tmp_path / "new_config.yaml"
@@ -55,18 +31,17 @@ class TestConfigSaveLoad:
         config = Config.load(config_path)
 
         assert config_path.exists()
-        assert config.hotkey == "<ctrl>+<alt>+t"
+        assert config.ocr_language == "eng"
 
     def test_save_load_custom_values(self, tmp_path):
         config_path = tmp_path / "config.yaml"
-        original = Config(hotkey="<ctrl>+<shift>+s", ocr_language="rus", ocr_engine="tesseract")
+        original = Config(ocr_language="rus", max_image_size=1024)
         original.save(config_path)
 
         loaded = Config.load(config_path)
 
-        assert loaded.hotkey == "<ctrl>+<shift>+s"
         assert loaded.ocr_language == "rus"
-        assert loaded.ocr_engine == "tesseract"
+        assert loaded.max_image_size == 1024
 
     def test_load_ignores_deprecated_keys(self, tmp_path):
         config_path = tmp_path / "config.yaml"
@@ -88,19 +63,11 @@ class TestConfigSaveLoad:
             "hotkey: <ctrl>+<alt>+t\nocr_language: eng\ntotally_unknown_key: some_value\n"
         )
         config = Config.load(config_path)
-        assert config.hotkey == "<ctrl>+<alt>+t"
+        assert config.ocr_language == "eng"
         assert not hasattr(config, "totally_unknown_key")
 
 
 class TestConfigValidation:
-    def test_invalid_ocr_engine_resets_to_ensemble(self):
-        config = Config(ocr_engine="foobar")
-        assert config.ocr_engine == "ensemble"
-
-    def test_valid_ocr_engine_accepted(self):
-        for engine in ("ensemble", "tesseract", "easyocr"):
-            assert Config(ocr_engine=engine).ocr_engine == engine
-
     def test_invalid_display_server_resets_to_auto(self):
         config = Config(display_server="foobar")
         assert config.display_server == "auto"
@@ -108,22 +75,6 @@ class TestConfigValidation:
     def test_valid_display_server_accepted(self):
         for ds in ("auto", "wayland", "x11"):
             assert Config(display_server=ds).display_server == ds
-
-    def test_zero_confidence_threshold_resets(self):
-        config = Config(ocr_confidence_threshold=0.0)
-        assert config.ocr_confidence_threshold == 0.6
-
-    def test_negative_confidence_threshold_resets(self):
-        config = Config(ocr_confidence_threshold=-0.5)
-        assert config.ocr_confidence_threshold == 0.6
-
-    def test_confidence_threshold_above_one_resets(self):
-        config = Config(ocr_confidence_threshold=1.5)
-        assert config.ocr_confidence_threshold == 0.6
-
-    def test_valid_confidence_threshold_accepted(self):
-        assert Config(ocr_confidence_threshold=1.0).ocr_confidence_threshold == 1.0
-        assert Config(ocr_confidence_threshold=0.01).ocr_confidence_threshold == 0.01
 
     def test_max_image_size_below_64_resets(self):
         config = Config(max_image_size=10)
@@ -139,25 +90,9 @@ class TestConfigValidation:
 
     # ── type-mismatch inputs (list/dict/None from YAML) ──────────────────────
 
-    def test_ocr_engine_as_list_resets(self):
-        config = Config(ocr_engine=["tesseract"])  # type: ignore[arg-type]
-        assert config.ocr_engine == "ensemble"
-
-    def test_ocr_engine_as_none_resets(self):
-        config = Config(ocr_engine=None)  # type: ignore[arg-type]
-        assert config.ocr_engine == "ensemble"
-
     def test_display_server_as_dict_resets(self):
         config = Config(display_server={"value": "wayland"})  # type: ignore[arg-type]
         assert config.display_server == "auto"
-
-    def test_confidence_threshold_as_string_resets(self):
-        config = Config(ocr_confidence_threshold="high")  # type: ignore[arg-type]
-        assert config.ocr_confidence_threshold == 0.6
-
-    def test_confidence_threshold_as_none_resets(self):
-        config = Config(ocr_confidence_threshold=None)  # type: ignore[arg-type]
-        assert config.ocr_confidence_threshold == 0.6
 
     def test_history_size_as_bool_resets(self):
         config = Config(history_size=True)  # type: ignore[arg-type]
@@ -181,21 +116,21 @@ class TestRenderConfig:
 
         output = Config()._render_config()
         data = yaml.safe_load(output)
-        assert data["ocr_engine"] == "ensemble"
+        assert data["ocr_language"] == "eng"
 
     def test_comments_present_for_key_fields(self):
         output = Config()._render_config()
         assert "# " in output
-        assert "ocr_engine" in output
-        assert "ensemble" in output
+        assert "ocr_language" in output
+        assert "routing" in output
 
     def test_round_trip_preserves_values(self, tmp_path):
-        c1 = Config(ocr_language="eng+rus", ocr_confidence_threshold=0.75)
+        c1 = Config(ocr_language="eng+rus", max_image_size=2048)
         path = tmp_path / "config.yaml"
         c1.save(path)
         c2 = Config.load(path)
         assert c2.ocr_language == "eng+rus"
-        assert c2.ocr_confidence_threshold == 0.75
+        assert c2.max_image_size == 2048
 
     def test_all_fields_present_in_output(self):
         import dataclasses
@@ -217,8 +152,8 @@ class TestConfigProfiles:
         config_path = tmp_path / "config.yaml"
         profiles_dir = tmp_path / "profiles"
         profiles_dir.mkdir()
-        (profiles_dir / "fast.yaml").write_text("ocr_engine: tesseract\n")
-        (profiles_dir / "gpu.yaml").write_text("use_gpu: true\n")
+        (profiles_dir / "fast.yaml").write_text("ocr_language: rus\n")
+        (profiles_dir / "gpu.yaml").write_text("routing: false\n")
         assert Config.list_profiles(config_path) == ["fast", "gpu"]
 
     def test_load_with_profile_applies_override(self, tmp_path):
@@ -226,9 +161,9 @@ class TestConfigProfiles:
         Config().save(config_path)
         profiles_dir = tmp_path / "profiles"
         profiles_dir.mkdir()
-        (profiles_dir / "fast.yaml").write_text("ocr_engine: tesseract\n")
+        (profiles_dir / "fast.yaml").write_text("ocr_language: rus\n")
         config = Config.load_with_profile(config_path, "fast")
-        assert config.ocr_engine == "tesseract"
+        assert config.ocr_language == "rus"
 
     def test_load_with_profile_keeps_base_fields(self, tmp_path):
         config_path = tmp_path / "config.yaml"
@@ -236,10 +171,10 @@ class TestConfigProfiles:
         base.save(config_path)
         profiles_dir = tmp_path / "profiles"
         profiles_dir.mkdir()
-        (profiles_dir / "fast.yaml").write_text("ocr_engine: tesseract\n")
+        (profiles_dir / "fast.yaml").write_text("routing: false\n")
         config = Config.load_with_profile(config_path, "fast")
         assert config.ocr_language == "rus"
-        assert config.ocr_engine == "tesseract"
+        assert config.routing is False
 
     def test_load_with_profile_missing_raises(self, tmp_path):
         config_path = tmp_path / "config.yaml"
@@ -250,9 +185,9 @@ class TestConfigProfiles:
         config_path = tmp_path / "config.yaml"
         profiles_dir = tmp_path / "profiles"
         profiles_dir.mkdir()
-        (profiles_dir / "fast.yaml").write_text("ocr_engine: tesseract\n")
+        (profiles_dir / "fast.yaml").write_text("ocr_language: rus\n")
         config = Config.load_with_profile(config_path, "fast")
-        assert config.ocr_engine == "tesseract"
+        assert config.ocr_language == "rus"
 
     def test_missing_profile_does_not_create_base_config(self, tmp_path):
         config_path = tmp_path / "config.yaml"
@@ -291,7 +226,51 @@ class TestRouterConfig:
 
     def test_removed_ab_test_key_is_dropped(self, tmp_path):
         path = tmp_path / "config.yaml"
-        path.write_text("ocr_engine: ensemble\nab_test_probability: 0.15\n")
+        path.write_text("ocr_language: rus\nab_test_probability: 0.15\n")
         config = Config.load(path)
-        assert config.ocr_engine == "ensemble"
+        assert config.ocr_language == "rus"
         assert not hasattr(config, "ab_test_probability")
+
+
+class TestRoutingConfig:
+    def test_routing_is_on_by_default(self):
+        assert Config().routing is True
+
+    @pytest.mark.parametrize("value", ["yes", 1, None])
+    def test_non_boolean_routing_is_reset(self, value):
+        assert Config(routing=value).routing is True
+
+    def test_routing_can_be_switched_off(self, tmp_path):
+        path = tmp_path / "config.yaml"
+        path.write_text("routing: false\n")
+        assert Config.load(path).routing is False
+
+    def test_a_0_4_config_file_still_loads(self, tmp_path):
+        path = tmp_path / "config.yaml"
+        path.write_text(
+            "hotkey: <ctrl>+<alt>+t\nocr_engine: ensemble\nocr_language: eng+rus+ell+equ\n"
+            "ocr_confidence_threshold: 0.6\nadaptive_ensemble: true\nmax_image_size: 4096\n"
+            "use_gpu: true\nnotification_enabled: true\nenable_text_correction: true\n"
+            "aggressive_correction: false\n"
+        )
+        config = Config.load(path)
+        assert config.ocr_language == "eng+rus+ell+equ" and config.routing is True
+        assert config.max_image_size == 4096 and config.notification_enabled is True
+
+    def test_rendered_config_has_no_removed_keys(self):
+        rendered = Config()._render_config()
+        for key in ("ocr_engine", "ocr_model_path", "use_gpu", "adaptive_ensemble",
+                    "ocr_confidence_threshold", "enable_text_correction",
+                    "aggressive_correction", "hotkey"):  # fmt: skip
+            assert key not in rendered
+        assert "routing: true" in rendered
+
+
+class TestLanguageConfig:
+    @pytest.mark.parametrize("value", ["", "   ", None, 5, "eng+", "+rus"])
+    def test_an_unusable_language_is_reset(self, value):
+        assert Config(ocr_language=value).ocr_language == "eng"
+
+    @pytest.mark.parametrize("value", ["eng", "eng+rus", "chi_sim+eng"])
+    def test_language_codes_are_kept(self, value):
+        assert Config(ocr_language=value).ocr_language == value

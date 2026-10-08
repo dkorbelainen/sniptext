@@ -2,7 +2,6 @@
 
 import shutil
 import subprocess
-import time
 from typing import Optional
 
 from loguru import logger
@@ -13,7 +12,6 @@ class ClipboardManager:
 
     def __init__(self):
         """Initialize clipboard manager."""
-        self._wl_process: Optional[subprocess.Popen] = None
         self._detect_clipboard_tool()
 
     def _detect_clipboard_tool(self) -> None:
@@ -38,124 +36,29 @@ class ClipboardManager:
             )
 
     def copy(self, text: str) -> bool:
-        """
-        Copy text to clipboard.
-
-        Args:
-            text: Text to copy
-
-        Returns:
-            True if successful, False otherwise
-        """
+        """Copy text to the clipboard. True on success."""
         try:
-            if self.tool == "wayland":
-                # Kill the previous wl-copy process before spawning a new one;
-                # wl-copy stays alive to serve the clipboard selection and
-                # repeated copies would otherwise accumulate orphaned processes.
-                if self._wl_process is not None and self._wl_process.poll() is None:
-                    try:
-                        self._wl_process.terminate()
-                        try:
-                            # Wait a bit longer to ensure stdin is flushed and compositor
-                            # has registered the selection before we terminate
-                            self._wl_process.wait(timeout=0.2)
-                        except subprocess.TimeoutExpired:
-                            logger.warning(
-                                "Previous wl-copy process did not exit in time; killing it."
-                            )
-                            self._wl_process.kill()
-                            try:
-                                self._wl_process.wait(timeout=1.0)
-                            except subprocess.TimeoutExpired:
-                                logger.error(
-                                    "Previous wl-copy process could not be killed promptly."
-                                )
-                    except Exception as e:
-                        logger.warning(f"Error while terminating previous wl-copy process: {e}")
-                    finally:
-                        self._wl_process = None
-
-                # wl-copy stays running (serves clipboard) until the content
-                # is replaced; we must NOT use communicate() here or we'd
-                # block until the user pastes.
-                process = subprocess.Popen(
-                    ["wl-copy"],
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.PIPE,
-                )
-                try:
-                    process.stdin.write(text.encode("utf-8"))
-                    process.stdin.close()
-                except BrokenPipeError:
-                    # wl-copy exited before we finished writing
-                    stderr = process.stderr.read().decode(errors="replace")
-                    logger.error(f"wl-copy closed unexpectedly: {stderr}")
-                    return False
-
-                # Ensure wl-copy has consumed stdin and is now serving the clipboard.
-                # Small delay to let the compositor register the new selection, and
-                # to ensure the process is ready before we kill the old one on next call.
-                time.sleep(0.1)
-
-                # Check if it started successfully — wl-copy must still be
-                # running to keep the Wayland clipboard selection alive.
-                # Any early exit (even with returncode 0) means the selection
-                # won't be served.
-                if process.poll() is not None:
-                    stderr = process.stderr.read().decode(errors="replace")
-                    logger.error(f"wl-copy exited unexpectedly (rc={process.returncode}): {stderr}")
-                    return False
-
-                self._wl_process = process
-                logger.debug(
-                    f"Copied {len(text)} characters to clipboard (wl-copy pid: {process.pid})"
-                )
-                return True
-            else:
-                # X11 tools work synchronously
-                process = subprocess.Popen(
-                    self.copy_cmd,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                )
-                stdout, stderr = process.communicate(input=text.encode("utf-8"), timeout=2)
-
-                if process.returncode != 0:
-                    logger.error(f"Failed to copy to clipboard: {stderr.decode()}")
-                    return False
-
-                logger.debug(f"Copied {len(text)} characters to clipboard")
-                return True
-
+            # The tool exits at once and leaves a child serving the selection. That child
+            # inherits our pipes, so capturing output would block until the clipboard changes.
+            result = subprocess.run(
+                self.copy_cmd,
+                input=text.encode("utf-8"),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=2,
+                check=False,
+            )
         except subprocess.TimeoutExpired:
             logger.error("Clipboard operation timed out")
             return False
         except Exception as e:
             logger.error(f"Error copying to clipboard: {e}")
             return False
-
-    def cleanup(self) -> None:
-        """Terminate the wl-copy background process if one is running."""
-        proc = self._wl_process
-        if proc is None:
-            return
-        try:
-            if proc.poll() is None:
-                try:
-                    proc.terminate()
-                    proc.wait(timeout=1.0)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                    try:
-                        proc.wait(timeout=1.0)
-                    except subprocess.TimeoutExpired:
-                        pass
-        except Exception as e:
-            logger.debug(f"Error cleaning up wl-copy process: {e}")
-        finally:
-            self._wl_process = None
+        if result.returncode != 0:
+            logger.error(f"{self.copy_cmd[0]} failed with code {result.returncode}")
+            return False
+        logger.debug(f"Copied {len(text)} characters to clipboard")
+        return True
 
     def paste(self) -> Optional[str]:
         """

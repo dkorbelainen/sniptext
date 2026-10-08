@@ -1,24 +1,30 @@
 .\" Man page for sniptext
 .TH SNIPTEXT 1 "2026" "sniptext" "User Commands"
 .SH NAME
-sniptext \- screen-capture OCR utility with adaptive ensemble recognition
+sniptext \- screen-capture OCR with per-image Tesseract preprocessing
 .SH SYNOPSIS
 .B sniptext
-[\fIOPTIONS\fR] [\fBserve\fR]
+[\fB\-h\fR] [\fB\-\-version\fR] [\fB\-c\fR \fICONFIG\fR] [\fB\-v\fR]
+[\fB\-\-capture\-now\fR | \fB\-\-file\fR \fIIMAGE\fR]
+[\fB\-\-print\-config\fR] [\fB\-\-output\fR \fIFILE\fR]
+[\fB\-\-history\fR [\fIN\fR]] [\fB\-\-profile\fR \fINAME\fR]
+[\fB\-\-list\-profiles\fR]
 .SH DESCRIPTION
 .B sniptext
-captures a screen region, runs OCR on it, and copies the recognised text to
-the clipboard.
-In its default mode it starts a daemon that listens for a global hotkey.
-Single-shot capture is available via \fB\-\-capture\-now\fR; processing an
-existing image file via \fB\-\-file\fR.
+lets you select a screen region, recognises its text with Tesseract and
+copies the text to the clipboard.  Run without arguments it captures once
+and exits.  Bind \fBsniptext \-\-capture\-now\fR to a key in your compositor.
 .PP
-Three OCR backends are supported: \fBtesseract\fR (fast, lightweight),
-\fBeasyocr\fR (higher accuracy), and \fBensemble\fR (default — runs both and
-merges results).  The adaptive mode (enabled by default) chooses Tesseract, EasyOCR or their
-merge for each image from a model of their error rates.
+Every image is first read with the default preprocessing pipeline.  From
+image statistics and the confidences of that pass a small model predicts
+the character error rate of each shipped pipeline, and a second pipeline
+runs only when it is predicted to do better for its time.  If it returns
+no text, the first result is kept.  Images above 2 megapixels always run
+the preprocessing of version 0.4.
+.PP
+After a screen capture a desktop notification shows the start of the text,
+or the reason when Tesseract could not run.
 .SH OPTIONS
-.SS General
 .TP
 .BR \-h ", " \-\-help
 Show a short usage summary and exit.
@@ -26,178 +32,110 @@ Show a short usage summary and exit.
 .BR \-\-version
 Print the version string and exit.
 .TP
+.BR \-c " \fICONFIG\fR, " \-\-config " \fICONFIG\fR"
+Path to a YAML configuration file.
+Default: \fI~/.config/sniptext/config.yaml\fR.
+.TP
 .BR \-v ", " \-\-verbose
 Enable debug logging to stderr.
 .TP
-.BR \-c " \fIFILE\fR, " \-\-config " \fIFILE\fR"
-Path to a YAML configuration file.
-Default: \fI~/.config/sniptext/config.yaml\fR.
-.SS Capture modes (mutually exclusive)
-.TP
 .B \-\-capture\-now
-Capture a screen region immediately (select with the mouse) without waiting
-for the hotkey.  Useful from keyboard shortcuts in your window manager.
+Select a screen region and recognise it.  This is the default action.
+Cannot be combined with \fB\-\-file\fR.
 .TP
 .BR \-\-file " \fIIMAGE\fR"
 Run OCR on an existing image file instead of capturing the screen.
-Supports any format that Pillow can open (PNG, JPEG, BMP, TIFF, …).
-.SS Output
+Supports any format that Pillow can open.  Transparent areas are filled
+with white, or with black under light text.
+.TP
+.B \-\-print\-config
+Print the current configuration in YAML format with comments and exit.
 .TP
 .BR \-\-output " \fIFILE\fR"
 Write the recognised text to \fIFILE\fR in addition to copying it to the
-clipboard.  Only valid with \fB\-\-capture\-now\fR or \fB\-\-file\fR.
-.TP
-.BR \-i ", " \-\-interactive
-Show an interactive preview of the OCR result in the terminal.  Allows
-reviewing and editing the text before copying to clipboard.
-
-.SS OCR
-.TP
-.BR \-\-ocr\-engine " \fIENGINE\fR"
-Override the OCR engine for this run.  One of \fBtesseract\fR,
-\fBeasyocr\fR, \fBensemble\fR.
-.TP
-.B \-\-list\-models
-List available OCR backends and exit.
-.TP
-.BR \-\-benchmark " \fIIMAGE\fR"
-Benchmark all available OCR engines on an image file and show timing results.
-Useful for identifying the fastest engine for your workflow.
-
-.SS History
+clipboard.
 .TP
 .BR \-\-history " [\fIN\fR]"
-Print the last \fIN\fR captured texts from history (default: 10) and exit.
-Each entry is printed with its UTC timestamp.
-.SS Daemon
-.TP
-.B serve
-Start sniptext in daemon mode.  Keeps OCR models in memory for faster
-subsequent captures.  Useful on Wayland systems with high OCR latency.
-.TP
-.BR \-\-client
-Connect to a running daemon (started with \fBsniptext serve\fR) for capture
-instead of running OCR locally.
-.TP
-.BR \-\-port " \fIPORT\fR"
-Port for daemon server (default: 9877).  Only used with \fBserve\fR command.
-
-.SS Configuration
-.TP
-.B \-\-print\-config
-Print the current configuration in YAML format with inline comments and exit.
-Useful for inspecting active settings or creating a config file template.
+Print the last \fIN\fR captured texts (default: 10) with their timestamps
+and exit.
 .TP
 .BR \-\-profile " \fINAME\fR"
-Load a named profile from
-\fI~/.config/sniptext/profiles/NAME.yaml\fR and merge its values on top of
-the base configuration.  Only the fields you wish to override need to be
+Load \fI~/.config/sniptext/profiles/NAME.yaml\fR and merge its values on
+top of the base configuration.  Only the fields to override need to be
 present in the profile file.
 .TP
 .B \-\-list\-profiles
-List available profiles (YAML files in
-\fI~/.config/sniptext/profiles/\fR) and exit.
+List available profiles and exit.
+.SH EXIT STATUS
+.TP
+.B 0
+Success, or no text was found.
+.TP
+.B 1
+The capture, the OCR or the clipboard failed.
+.TP
+.B 2
+Unreadable image file or bad arguments.
 .SH CONFIGURATION
 The configuration file is a YAML document located at
-\fI~/.config/sniptext/config.yaml\fR by default.  Run
-\fBsniptext \-\-print\-config\fR to see all available fields with their
-current values and explanatory comments.
-.PP
-Key settings:
-.TP
-.B hotkey
-Global hotkey that triggers a capture in daemon mode.  Default:
-\fI<ctrl>+<alt>+t\fR.
-.TP
-.B ocr_engine
-Backend to use: \fBensemble\fR (default), \fBtesseract\fR, or
-\fBeasyocr\fR.
+\fI~/.config/sniptext/config.yaml\fR by default.  It is created on first
+run.  Keys of removed features are ignored with a warning.
 .TP
 .B ocr_language
 Tesseract language code(s).  For multiple languages use \fB+\fR as
-separator, e.g. \fIeng+rus\fR.  EasyOCR language codes are derived
-automatically.
+separator, e.g. \fIeng+rus\fR.  Default: \fIeng\fR.
 .TP
-.B ocr_confidence_threshold
-Minimum confidence score (0.0–1.0) to accept an OCR result.
-Default: \fI0.6\fR.
+.B routing
+Choose the preprocessing pipeline per image.  With \fIfalse\fR the default
+pipeline always runs.  Default: \fItrue\fR.
 .TP
-.B history_enabled " / " history_size
-Enable or disable the capture history log and set the maximum number of
-entries to keep.  Defaults: \fItrue\fR / \fI50\fR.
+.B router_time_weight
+Error traded per second in that choice.  Blank uses the benchmarked value,
+\fI0\fR ignores time.
+.TP
+.B max_image_size
+Images with a larger side are reduced before OCR.  Default: \fI4096\fR.
 .TP
 .B notification_enabled
-Show a desktop notification after each successful capture.
-Default: \fItrue\fR.
+Show a desktop notification after each capture.  Default: \fItrue\fR.
+.TP
+.B history_enabled " / " history_size
+Keep captured texts and set how many.  Defaults: \fItrue\fR / \fI50\fR.
+.TP
+.B display_server
+\fIauto\fR, \fIwayland\fR or \fIx11\fR.  Default: \fIauto\fR.
 .SS Profiles
-Create partial YAML files in \fI~/.config/sniptext/profiles/\fR to
-define named configuration presets.  Only the fields you want to
-override need to be listed.
+Create partial YAML files in \fI~/.config/sniptext/profiles/\fR to define
+named presets.
 .PP
-Example — \fI~/.config/sniptext/profiles/fast.yaml\fR:
+Example \- \fI~/.config/sniptext/profiles/rus.yaml\fR:
 .PP
 .nf
-    ocr_engine: tesseract
-    ocr_confidence_threshold: 0.5
+    ocr_language: eng+rus
 .fi
 .PP
-Activate with: \fBsniptext \-\-profile fast \-\-capture\-now\fR
+Activate with: \fBsniptext \-\-profile rus \-\-capture\-now\fR
 .SH FILES
 .TP
 .I ~/.config/sniptext/config.yaml
-Main configuration file.  Created automatically on first run with commented
-defaults.
+Main configuration file.
 .TP
 .I ~/.config/sniptext/profiles/
 Directory for named configuration profiles.
 .TP
 .I ~/.local/share/sniptext/history.jsonl
-Capture history log (one JSON object per line).
-.TP
-.I ~/.local/share/sniptext/models/
-Default directory for EasyOCR model files.
+Capture history (one JSON object per line).
 .SH EXAMPLES
-Start in daemon mode (uses configured hotkey):
-.PP
-.nf
-    sniptext
-.fi
-.PP
-Capture a region immediately and copy to clipboard:
+Capture a region and copy its text:
 .PP
 .nf
     sniptext \-\-capture\-now
-.fi
-.PP
-Review and edit OCR result before copying:
-.PP
-.nf
-    sniptext \-\-capture\-now \-\-interactive
-.fi
-.PP
-Benchmark OCR engines on an image:
-.PP
-.nf
-    sniptext \-\-benchmark screenshot.png
-.fi
-.PP
-Start daemon server for faster Wayland captures:
-.PP
-.nf
-    sniptext serve
-    sniptext \-\-capture\-now \-\-client
 .fi
 .PP
 Run OCR on an existing file and save the result:
 .PP
 .nf
     sniptext \-\-file screenshot.png \-\-output result.txt
-.fi
-.PP
-Use the fast profile for a one-shot capture:
-.PP
-.nf
-    sniptext \-\-profile fast \-\-capture\-now
 .fi
 .PP
 Show the last 20 captured texts:
@@ -208,8 +146,8 @@ Show the last 20 captured texts:
 .SH SEE ALSO
 .BR tesseract (1),
 .BR notify-send (1),
-.BR xclip (1),
-.BR wl-copy (1)
+.BR wl-copy (1),
+.BR xclip (1)
 .SH BUGS
 Report bugs at \fIhttps://github.com/dkorbelainen/sniptext/issues\fR
 .SH AUTHOR

@@ -1,210 +1,378 @@
-"""Router selection and export on a small fabricated results file (no OCR)."""
-
 import json
 
 import numpy as np
 import pytest
 
-from benchmarks import train_router
+from benchmarks import train_router as tr
 from sniptext.analyzer import FEATURE_NAMES
-from sniptext.router import ACTIONS, CONF_STAT_NAMES, Router
+from sniptext.pipelines import MAX_ROUTED_PIXELS, V04
+from sniptext.router import CONF_STAT_NAMES, Router, load_model
 
-RIDGE_ONLY = [{"kind": "ridge", "alpha": 1.0}]
+NAMES = ("p_base", "p_alt", "p_same", "p_bad")
+SPLITS = (
+    "train",
+    "train",
+    "train",
+    "train",
+    "val",
+    "val",
+    "test",
+    "test",
+    "unseen_font",
+    "browser",
+    "confirm",
+)
+FAST = [{"kind": "gbr", "n_estimators": 40, "max_depth": 2, "learning_rate": 0.1}]
+NOISE = FEATURE_NAMES.index("noise_level")
+pytestmark = pytest.mark.usefixtures("fast_bootstrap")
 
 
-def fake_results(path, n_texts=60, seed=0):
-    """Tesseract is good when feature 0 is small, EasyOCR when it is large."""
+def fake_run(tmp_path, n_texts=100, seed=0, helpful=True, empty_alt=False):
+    """p_alt is the better pipeline exactly on noisy images; p_same copies p_base."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(seed)
-    rows = []
-
-    def row(image, split, text_id):
-        features = rng.random(len(FEATURE_NAMES))
-        tess = float(np.clip(features[0] + rng.normal(0, 0.05), 0, 1.5))
-        easy = float(np.clip(1 - features[0] + rng.normal(0, 0.05), 0, 1.5))
-        return {
-            "image": image,
-            "source": "sroie" if split == "ood" else "synthetic",
-            "split": split,
-            "text_id": text_id,
-            "lang": "en" if rng.random() < 0.5 else "ru",
-            "content": "prose",
-            "font": "f",
-            "font_size": 16,
-            "theme": "light" if rng.random() < 0.5 else "dark",
-            "degradation": str(rng.choice(["none", "blur", "blur+noise"])),
-            "features": features.tolist(),
-            "legacy_features": rng.random(7).tolist(),
-            "conf_stats": [1 - tess / 1.5, 0.5, 0.5, tess / 1.5, 0.1],
-            "cer": {"tesseract_plain": tess, "tesseract": tess, "easyocr": easy, "merge": 0.4},
-            "wer": {"tesseract_plain": tess, "tesseract": tess, "easyocr": easy, "merge": 0.4},
-            "time": {"tesseract_plain": 0.1, "tesseract": 0.12, "easyocr": 0.3, "features": 0.002},
-            "weak": {"fast_quality": float(rng.random()), "ens_quality": float(rng.random())},
-        }
-
+    rows, timing, legacy = [], {}, {}
     for t in range(n_texts):
-        split = "train" if t < n_texts * 0.6 else "val" if t < n_texts * 0.8 else "test"
-        for k in range(4):
-            rows.append(row(f"t{t}_{k}.png", split, f"text{t}"))
-        if split == "test":
-            rows.append(row(f"t{t}_u.png", "unseen_font", f"text{t}"))
-    for k in range(10):
-        rows.append(row(f"r{k}.jpg", "ood", f"r{k}.jpg"))
-    path.write_text(
-        json.dumps(
-            {
-                "feature_names": list(FEATURE_NAMES),
-                "conf_stat_names": list(CONF_STAT_NAMES),
-                "language": "eng+rus",
-                "rows": rows,
-            }
-        )
-    )
-    return path
+        split = SPLITS[t % len(SPLITS)]
+        for r in range(2):
+            features = rng.random(len(FEATURE_NAMES))
+            noisy = features[NOISE] > 0.5
+            base = 0.6 if noisy else 0.02
+            alt = (0.05 if noisy else 0.7) if helpful else base + 0.1
+            jitter = lambda v: float(max(v + rng.normal(0, 0.005), 0.0))  # noqa: E731
+            image = f"t{t}_{r}.png"
+            text = {name: "x" for name in NAMES}
+            if empty_alt and not noisy:
+                text["p_alt"] = ""
+            rows.append(
+                {
+                    "image": image,
+                    "source": "synthetic",
+                    "split": split,
+                    "text_id": f"t{t}",
+                    "lang": "en",
+                    "content": "prose",
+                    "font": "F",
+                    "font_size": 12,
+                    "theme": "light",
+                    "degradation": "noise" if noisy else "none",
+                    "scale": 1.0,
+                    "pixels": 1000,
+                    "gt": "x",
+                    "features": [float(v) for v in features],
+                    "cer": {
+                        "p_base": jitter(base),
+                        "p_alt": jitter(alt),
+                        "p_same": jitter(base) + 0.01,
+                        "p_bad": 0.9,
+                    },
+                    "text": text,
+                    "conf_stats": {name: [0.9, 0.8, 0.8, 0.1, 0.1] for name in NAMES},
+                }  # fmt: skip
+            )
+            if split != "train" or r == 0:
+                timing[image] = {"features": 0.002,
+                                 "time": {"p_base": 0.10, "p_alt": 0.12, "p_same": 0.10, "p_bad": 0.10}}  # fmt: skip
+            if split not in ("browser", "confirm"):
+                legacy[image] = {"split": split, "cer": [base, 0.3, 0.3], "action": 0,
+                                 "time": [0.1, 0.05]}  # fmt: skip
+    paths = {
+        key: tmp_path / f"{key}.json" for key in ("results", "timing", "legacy", "model", "eval")
+    }
+    paths["results"].write_text(json.dumps({
+        "feature_names": list(FEATURE_NAMES), "conf_stat_names": list(CONF_STAT_NAMES),
+        "language": "eng",
+        "pipelines": [{"name": name, "steps": ["light"], "psm": "6"} for name in NAMES],
+        "rows": rows}))  # fmt: skip
+    paths["timing"].write_text(json.dumps(
+        {"loadavg": [[[0.1, 0.1, 0.1], [0.2, 0.1, 0.1]]], "rows": timing}))  # fmt: skip
+    paths["legacy"].write_text(json.dumps(
+        {"source": "t", "actions": ["tesseract", "easyocr", "merge"], "rows": legacy}))  # fmt: skip
+    return paths
 
 
-def test_tesseract_call_rule(tmp_path):
-    data = train_router.load_arrays(fake_results(tmp_path / "r.json"))
-    dev = np.isin(data["split"], ("train", "val"))
-    assert train_router.tesseract_call_rule(data, dev) == "detailed"
-    data["cer"]["tesseract"] = data["cer"]["tesseract"] + 0.05
-    assert train_router.tesseract_call_rule(data, dev) == "plain"
+def arrays(paths):
+    data = tr.load_arrays(paths["results"], paths["timing"])
+    dev = np.isin(data["split"], tr.DEV_SPLITS)
+    return data, dev, np.nanmean(data["seconds"][dev], axis=0)
 
 
-def test_design_shapes_and_columns(tmp_path):
-    data = train_router.load_arrays(fake_results(tmp_path / "r.json"))
+def test_load_arrays(tmp_path):
+    data, dev, mean_seconds = arrays(fake_run(tmp_path, empty_alt=True))
     n = len(data["rows"])
-    X, cer, times, names = train_router.design(data, "pre_ocr", "detailed")
-    assert X.shape == (n, len(FEATURE_NAMES)) and cer.shape == (n, 3) and times.shape == (n, 3)
-    assert names == list(FEATURE_NAMES)
-    assert times[0] == pytest.approx([0.12, 0.3, 0.42])
-    X, cer, times, names = train_router.design(data, "cascade", "plain")
-    assert X.shape == (n, len(FEATURE_NAMES) + len(CONF_STAT_NAMES))
-    assert names == list(FEATURE_NAMES) + list(CONF_STAT_NAMES)
-    assert times[0] == pytest.approx([0.12, 0.42, 0.42])
-    _, _, times, _ = train_router.design(data, "pre_ocr", "plain")
-    assert times[0] == pytest.approx([0.1, 0.3, 0.4])
+    assert data["names"] == list(NAMES)
+    assert data["features"].shape == (n, len(FEATURE_NAMES)) and data["cer"].shape == (n, 4)
+    assert data["conf_stats"].shape == (n, 4, 5)
+    assert data["empty"][:, 1].any() and not data["empty"][:, 0].any()
+    assert np.isnan(data["seconds"]).any() and not np.isnan(data["seconds"][~dev]).any()
+    assert mean_seconds.tolist() == pytest.approx([0.10, 0.12, 0.10, 0.10])
+    assert data["loadavg"] == [[[0.1, 0.1, 0.1], [0.2, 0.1, 0.1]]]
+
+
+def test_action_costs():
+    assert tr.action_costs("pre_ocr", [0.1, 0.2, 0.3]).tolist() == pytest.approx([0.1, 0.2, 0.3])
+    assert tr.action_costs("cascade", [0.1, 0.2, 0.3]).tolist() == pytest.approx([0.1, 0.3, 0.4])
+
+
+def test_design_before_ocr(tmp_path):
+    data, dev, mean_seconds = arrays(fake_run(tmp_path, empty_alt=True))
+    X, cer, seconds, names = tr.design(data, "pre_ocr", [0, 1], mean_seconds)
+    assert X.shape[1] == len(FEATURE_NAMES) and names == list(FEATURE_NAMES)
+    empty = data["empty"][:, 1]
+    # an empty result is replaced by the default's text and both passes are paid
+    assert np.allclose(cer[empty, 1], data["cer"][empty, 0])
+    assert np.allclose(seconds[empty, 1], 0.22) and np.allclose(seconds[~empty, 1], 0.12)
+
+
+def test_design_cascade_adds_the_default_confidences(tmp_path):
+    data, dev, mean_seconds = arrays(fake_run(tmp_path))
+    X, cer, seconds, names = tr.design(data, "cascade", [1, 0], mean_seconds)
+    assert X.shape[1] == len(FEATURE_NAMES) + 5 and names[-5:] == list(CONF_STAT_NAMES)
+    assert np.allclose(seconds[:, 0], 0.12) and np.allclose(seconds[:, 1], 0.22)
+    assert np.allclose(cer[:, 0], data["cer"][:, 1])
 
 
 def test_oof_predictions_never_fit_on_the_predicted_group(monkeypatch):
     seen = []
 
-    class Spy:
-        def __init__(self, spec):
-            self.groups = set()
+    def fake_fit(spec, X, y):
+        seen.append(set(X[:, 0].astype(int)))
+        return []
 
-        def fit(self, X, y):
-            self.groups = set(X[:, 0].tolist())
-            return self
+    monkeypatch.setattr(tr, "fit", fake_fit)
+    monkeypatch.setattr(tr, "predict", lambda models, X: np.zeros((len(X), 2)))
+    groups = np.repeat(np.arange(10), 3)
+    X = np.column_stack([groups, np.zeros(30)])
+    tr.oof_predictions({}, X, np.zeros((30, 2)), groups)
+    assert len(seen) == 5 and all(len(fold) == 8 for fold in seen)
 
-        def predict_cer(self, X):
-            seen.append((self.groups, set(X[:, 0].tolist())))
-            return np.full((len(X), 3), 0.5)
 
-    monkeypatch.setattr(train_router, "RouterModel", Spy)
-    groups = np.repeat(np.arange(10), 4)
-    pred = train_router.oof_predictions(
-        {}, groups[:, None].astype(float), np.zeros((40, 3)), groups
-    )
-    assert pred.shape == (40, 3) and np.all(pred == 0.5)
-    assert len(seen) == 5
-    for fitted_on, predicted in seen:
-        assert not fitted_on & predicted
+def test_select_actions_adds_the_complementary_pipeline_and_stops(tmp_path):
+    data, dev, mean_seconds = arrays(fake_run(tmp_path))
+    chosen, steps = tr.select_actions(data, dev, mean_seconds, spec=FAST[0])
+    assert [data["names"][k] for k in chosen] == ["p_base", "p_alt"]
+    assert steps[0]["added"] == "p_base" and steps[1]["added"] == "p_alt"
+    assert steps[1]["oof_cer"] < steps[0]["oof_cer"] - 0.1
+    assert steps[-1]["added"] is None and steps[-1]["rejected"] in ("p_same", "p_bad")
+
+
+def test_select_actions_respects_the_cap(tmp_path):
+    data, dev, mean_seconds = arrays(fake_run(tmp_path))
+    chosen, steps = tr.select_actions(data, dev, mean_seconds, spec=FAST[0], max_actions=1)
+    assert len(chosen) == 1 and len(steps) == 1
+
+
+def test_select_actions_keeps_one_action_when_nothing_helps(tmp_path):
+    data, dev, mean_seconds = arrays(fake_run(tmp_path, helpful=False))
+    chosen, _ = tr.select_actions(data, dev, mean_seconds, spec=FAST[0])
+    assert [data["names"][k] for k in chosen] == ["p_base"]
 
 
 def test_pick_time_weight_takes_the_largest_weight_within_tolerance():
-    costs = np.array([0.1, 0.4, 0.5])
-    y = np.array([[0.30, 0.25, 0.90]])
-    # Switching to Tesseract costs 0.05 CER, more than the 0.005 tolerance; it
-    # happens once 0.30 + 0.1 w < 0.25 + 0.4 w, that is w > 1/6.
-    assert train_router.pick_time_weight(y, y, costs, weights=[0.0, 0.1, 0.2, 1.0]) == 0.1
-    y = np.array([[0.252, 0.250, 0.90]])
-    assert train_router.pick_time_weight(y, y, costs, weights=[0.0, 0.1, 0.2, 1.0]) == 1.0
+    y = np.array([[0.5, 0.1], [0.5, 0.1]])
+    pred = y.copy()
+    costs = np.array([0.1, 0.2])
+    # weights 5 and 10 switch to the cheap action, which costs 0.4 CER
+    assert tr.pick_time_weight(pred, y, costs, weights=[0.0, 5.0, 10.0]) == 0.0
+    assert tr.pick_time_weight(pred, y, costs, weights=[0.0, 1.0, 10.0]) == 1.0
+    assert tr.pick_time_weight(pred, y, costs, weights=[0.0, 1.0, 10.0], tolerance=0.5) == 10.0
 
 
-def test_select_policy():
-    pick = train_router.select_policy
-    assert (
-        pick({"pre_ocr": {"cer": 0.20, "time": 0.2}, "cascade": {"cer": 0.10, "time": 0.4}})
-        == "cascade"
-    )
-    assert (
-        pick({"pre_ocr": {"cer": 0.10, "time": 0.2}, "cascade": {"cer": 0.20, "time": 0.1}})
-        == "pre_ocr"
-    )
-    assert (
-        pick({"pre_ocr": {"cer": 0.103, "time": 0.2}, "cascade": {"cer": 0.100, "time": 0.4}})
-        == "pre_ocr"
-    )
-    assert (
-        pick({"pre_ocr": {"cer": 0.100, "time": 0.5}, "cascade": {"cer": 0.103, "time": 0.4}})
-        == "cascade"
-    )
+def test_select_policy_takes_the_lower_cer_and_the_faster_on_a_tie():
+    close = {"pre_ocr": {"cer": 0.050, "time": 0.2}, "cascade": {"cer": 0.048, "time": 0.3}}
+    assert tr.select_policy(close) == "cascade"
+    tie = {"pre_ocr": {"cer": 0.050, "time": 0.2}, "cascade": {"cer": 0.050, "time": 0.3}}
+    assert tr.select_policy(tie) == "pre_ocr"
+
+
+def test_preregistered_policy_prefers_speed_within_the_tolerance():
+    close = {"pre_ocr": {"cer": 0.050, "time": 0.2}, "cascade": {"cer": 0.048, "time": 0.3}}
+    assert tr.preregistered_policy(close) == "pre_ocr"
+    apart = {"pre_ocr": {"cer": 0.060, "time": 0.2}, "cascade": {"cer": 0.048, "time": 0.3}}
+    assert tr.preregistered_policy(apart) == "cascade"
+
+
+def test_select_model_rejects_candidates_that_all_fail():
+    with pytest.raises(ValueError):
+        tr.select_model(np.zeros((4, 1)), np.zeros((4, 2)), np.arange(4), np.zeros(2), [])
 
 
 def test_run_end_to_end(tmp_path):
-    results = fake_results(tmp_path / "r.json")
-    table = tmp_path / "pkg" / "router_train.csv.gz"
-    timing = tmp_path / "timing.json"
-    timing.write_text(json.dumps({"n": 5, "easyocr_cpu_mean": 3.0, "easyocr_gpu_mean": 0.3}))
-    ev = train_router.run(results, table, tmp_path / "eval.json", timing, candidates=RIDGE_ONLY)
-
-    assert json.loads((tmp_path / "eval.json").read_text())["shipped"] == ev["shipped"]
-    assert ev["shipped"] in train_router.POLICIES
-    assert ev["best_static"] in ACTIONS
-    assert ev["dataset"]["by_split"] == {
-        "train": 144,
-        "val": 48,
-        "test": 48,
-        "unseen_font": 12,
-        "ood": 10,
+    paths = fake_run(tmp_path)
+    ev = tr.run(paths["results"], paths["timing"], paths["legacy"], paths["model"],
+                paths["eval"], candidates=FAST)  # fmt: skip
+    assert ev["shipped"] in ("pre_ocr", "cascade") and ev["best_static"] == "p_base"
+    assert ev["actions"] == ["p_base", "p_alt"]
+    router = Router(paths["model"])
+    assert router.available and router.default.name == "p_base"
+    assert set(ev["slices"]) == {"test", "unseen_font", "browser", "confirm"}
+    test = {s["policy"]: s for s in ev["slices"]["test"]}
+    shipped = test[f"router_{ev['shipped']}"]
+    assert shipped["cer"][0] < 0.1 < test["always_p_base"]["cer"][0]
+    assert shipped["delta"][2] < 0 and ev["criteria"]["router_beats_best_static"]
+    assert "router_v04" in test and "router_v04" not in {
+        s["policy"] for s in ev["slices"]["browser"]
     }
-    assert ev["dataset"]["texts"] == 60
-
-    names = [s["policy"] for s in ev["slices"]["test"]]
-    assert names == [
-        "always_tesseract",
-        "always_easyocr",
-        "always_merge",
-        "legacy_rules",
-        "router_pre_ocr",
-        "router_cascade",
-        "oracle",
-    ]
-    by_name = {s["policy"]: s for s in ev["slices"]["test"]}
-    assert by_name["oracle"]["regret"][0] == 0.0
-    # The signal is strong by construction: both routers beat every static policy.
-    for policy in train_router.POLICIES:
-        assert by_name[f"router_{policy}"]["cer"][0] < by_name["always_merge"]["cer"][0]
-        assert len(ev["policies"][policy]["selection"]) == 1
-        assert set(ev["policies"][policy]["ablation"]) == set(
-            ev["policies"][policy]["feature_names"]
-        )
-        assert len(ev["policies"][policy]["curve"]) == len(train_router.TIME_WEIGHTS)
-    assert set(ev["slices"]) == {"test", "unseen_font", "ood"}
-    assert set(ev["breakdown"]) == {"degradation", "theme", "lang", "content"}
-    assert set(ev["breakdown"]["degradation"]) == {"none", "blur", "two combined"}
-    assert ev["cpu"]["ratio"] == pytest.approx(10.0)
-    # The app keeps the shipped weight on a CPU, so that row has the test-slice CER.
-    as_shipped = ev["cpu"]["shipped"]
-    assert as_shipped["time_weight"] == ev["policies"][ev["shipped"]]["time_weight"]
-    assert as_shipped["cer"] == pytest.approx(by_name[f"router_{ev['shipped']}"]["cer"][0])
-    assert as_shipped["time"] >= by_name[f"router_{ev['shipped']}"]["time"]
-    assert set(ev["weak_labels"]) == {"synthetic", "all"}
-
-    router = Router(table, cache_dir=tmp_path / "cache")
-    assert router.available
-    assert router.policy == ev["shipped"]
-    expected = len(FEATURE_NAMES) + (len(CONF_STAT_NAMES) if ev["shipped"] == "cascade" else 0)
-    assert router.choose(np.full(len(FEATURE_NAMES), 0.5), [[0.9]]) in ACTIONS
-    assert len(ev["policies"][ev["shipped"]]["feature_names"]) == expected
+    assert {"oracle", "oracle_pool"} <= set(test)
+    assert set(ev["clean_vs_degraded"]) == {"clean", "degraded"}
+    assert ev["easyocr"]["with_easyocr"] <= ev["easyocr"]["shipped"]
+    assert json.loads(paths["eval"].read_text())["shipped"] == ev["shipped"]
 
 
-def test_run_without_cpu_timing(tmp_path):
-    ev = train_router.run(
-        fake_results(tmp_path / "r.json"),
-        tmp_path / "t.csv.gz",
-        tmp_path / "eval.json",
-        tmp_path / "missing.json",
-        candidates=RIDGE_ONLY,
-    )
-    assert ev["cpu"] is None
+def test_run_scores_the_shipped_policy_through_the_router(tmp_path, monkeypatch):
+    calls = []
+    original = Router.choose_vector
+
+    def counting(self, x):
+        calls.append(1)
+        return original(self, x)
+
+    monkeypatch.setattr(Router, "choose_vector", counting)
+    paths = fake_run(tmp_path)
+    tr.run(paths["results"], paths["timing"], paths["legacy"], paths["model"], paths["eval"],
+           candidates=FAST)  # fmt: skip
+    data = tr.load_arrays(paths["results"], paths["timing"])
+    assert len(calls) >= int(np.isin(data["split"], tr.EVAL_SLICES).sum())
+
+
+def test_run_ships_a_static_model_when_routing_does_not_help(tmp_path):
+    paths = fake_run(tmp_path, helpful=False)
+    ev = tr.run(paths["results"], paths["timing"], paths["legacy"], paths["model"],
+                paths["eval"], candidates=FAST)  # fmt: skip
+    model = load_model(paths["model"])
+    assert ev["shipped"] == "static" and ev["actions"] == ["p_base"]
+    assert model.policy == "static" and len(model.actions) == 1 and not model.regressors
+    assert not ev["criteria"]["router_beats_best_static"]
+    assert [s["policy"] for s in ev["slices"]["test"]][0] == "always_p_base"
+
+
+def test_the_model_does_not_depend_on_evaluation_slices(tmp_path):
+    first = fake_run(tmp_path / "a")
+    tr.run(first["results"], first["timing"], first["legacy"], first["model"], first["eval"],
+           candidates=FAST)  # fmt: skip
+    second = fake_run(tmp_path / "b")
+    payload = json.loads(second["results"].read_text())
+    for row in payload["rows"]:
+        if row["split"] not in tr.DEV_SPLITS:
+            row["cer"] = {name: 0.5 for name in NAMES}
+    second["results"].write_text(json.dumps(payload))
+    tr.run(second["results"], second["timing"], second["legacy"], second["model"],
+           second["eval"], candidates=FAST)  # fmt: skip
+    assert first["model"].read_bytes() == second["model"].read_bytes()
+
+
+def test_delivered_applies_the_empty_text_rule(tmp_path):
+    paths = fake_run(tmp_path, empty_alt=True)
+    tr.run(paths["results"], paths["timing"], paths["legacy"], paths["model"], paths["eval"],
+           candidates=FAST)  # fmt: skip
+    data = tr.load_arrays(paths["results"], paths["timing"])
+    mask = data["split"] == "val"
+    columns = tr.delivered(data, Router(paths["model"]), mask)
+    assert set(columns.tolist()) <= {0, 1}
+    assert not data["empty"][mask][np.arange(mask.sum()), columns].any()
+
+
+def test_images_above_the_size_limit_are_scored_with_the_default(tmp_path):
+    paths = fake_run(tmp_path)
+    payload = json.loads(paths["results"].read_text())
+    for row in payload["rows"]:
+        if row["split"] == "test":
+            row["pixels"] = MAX_ROUTED_PIXELS + 1
+    paths["results"].write_text(json.dumps(payload))
+    ev = tr.run(paths["results"], paths["timing"], paths["legacy"], paths["model"], paths["eval"],
+                candidates=FAST)  # fmt: skip
+    test = {s["policy"]: s for s in ev["slices"]["test"]}
+    for policy in ("router_pre_ocr", "router_cascade"):
+        assert test[policy]["share"] == {"p_base": 1.0, "p_alt": 0.0}
+        assert test[policy]["cer"][0] == pytest.approx(test["always_p_base"]["cer"][0])
+        assert test[policy]["time"] == pytest.approx(test["always_p_base"]["time"])
+    other = {s["policy"]: s for s in ev["slices"]["unseen_font"]}
+    assert other[f"router_{ev['shipped']}"]["share"]["p_alt"] > 0
+    data = tr.load_arrays(paths["results"], paths["timing"])
+    mask = data["split"] == "test"
+    assert ev["dataset"]["unrouted"] == int(mask.sum())
+    assert set(tr.delivered(data, Router(paths["model"]), mask).tolist()) == {0}
+
+
+def test_images_above_the_size_limit_are_scored_with_the_v04_pipeline_when_pooled(tmp_path):
+    paths = fake_run(tmp_path)
+    for key in ("results", "timing"):
+        paths[key].write_text(paths[key].read_text().replace("p_bad", V04.name))
+    payload = json.loads(paths["results"].read_text())
+    for row in payload["rows"]:
+        if row["split"] == "test":
+            row["pixels"] = MAX_ROUTED_PIXELS + 1
+    paths["results"].write_text(json.dumps(payload))
+    ev = tr.run(paths["results"], paths["timing"], paths["legacy"], paths["model"], paths["eval"],
+                candidates=FAST)  # fmt: skip
+    shipped = next(s for s in ev["slices"]["test"] if s["policy"] == f"router_{ev['shipped']}")
+    assert shipped["share"] == {"p_base": 0.0, "p_alt": 0.0, V04.name: 1.0}
+    assert shipped["cer"][0] == pytest.approx(0.9)
+    data = tr.load_arrays(paths["results"], paths["timing"])
+    columns = tr.delivered(data, Router(paths["model"]), data["split"] == "test")
+    assert set(columns.tolist()) == {data["names"].index(V04.name)}
+
+
+def test_run_pairs_the_shipped_policy_with_the_v04_pipeline(tmp_path):
+    paths = fake_run(tmp_path)
+    for key in ("results", "timing"):
+        paths[key].write_text(paths[key].read_text().replace("p_bad", V04.name))
+    ev = tr.run(paths["results"], paths["timing"], paths["legacy"], paths["model"], paths["eval"],
+                candidates=FAST)  # fmt: skip
+    deltas = ev["per_slice_delta_v04_tesseract"]
+    assert set(deltas) == {"test", "unseen_font", "browser", "confirm"}
+    # the fabricated 0.4 pipeline has CER 0.9 everywhere
+    assert all(delta[2] < -0.5 for delta in deltas.values())
+
+
+def test_run_without_the_v04_pipeline_in_the_pool_has_no_such_pairing(tmp_path):
+    paths = fake_run(tmp_path)
+    ev = tr.run(paths["results"], paths["timing"], paths["legacy"], paths["model"], paths["eval"],
+                candidates=FAST)  # fmt: skip
+    assert ev["per_slice_delta_v04_tesseract"] == {}
+
+
+def test_run_reports_the_confirmation_slice_and_the_preregistered_rule(tmp_path):
+    paths = fake_run(tmp_path)
+    ev = tr.run(paths["results"], paths["timing"], paths["legacy"], paths["model"], paths["eval"],
+                candidates=FAST)  # fmt: skip
+    criteria = ev["criteria"]
+    assert criteria["preregistered_policy"] in ("pre_ocr", "cascade")
+    assert criteria["preregistered_test_delta"][2] < 0
+    assert criteria["confirm_delta"][2] < 0 and criteria["confirm_beats_best_static"]
+    confirm = {s["policy"]: s for s in ev["slices"]["confirm"]}
+    assert confirm[f"router_{ev['shipped']}"]["delta"] == criteria["confirm_delta"]
+    assert "router_v04" not in confirm
+
+
+def test_run_splits_held_out_images_by_added_noise(tmp_path):
+    paths = fake_run(tmp_path)
+    ev = tr.run(paths["results"], paths["timing"], paths["legacy"], paths["model"], paths["eval"],
+                candidates=FAST)  # fmt: skip
+    assert set(ev["noise_split"]) == {"test", "confirm"}
+    split = ev["noise_split"]["test"]
+    assert set(split) == {"with added noise", "without added noise"}
+    assert sum(group["n"] for group in split.values()) == ev["slices"]["test"][0]["n"]
+    shipped = f"router_{ev['shipped']}"
+    noisy, quiet = split["with added noise"], split["without added noise"]
+    assert set(noisy["delta_static"]) == {"router_pre_ocr", "router_cascade"}
+    assert noisy["delta_static"][shipped][2] < -0.3
+    assert abs(quiet["delta_static"][shipped][0]) < 0.05
+    assert noisy["cer"]["always_p_base"] > 0.5 > noisy["cer"][shipped]
+
+
+def test_dataset_card_states_the_largest_development_image(tmp_path):
+    paths = fake_run(tmp_path)
+    ev = tr.run(paths["results"], paths["timing"], paths["legacy"], paths["model"], paths["eval"],
+                candidates=FAST)  # fmt: skip
+    assert ev["dataset"]["dev_max_pixels"] == 1000
+
+
+def test_the_browser_criterion_is_not_judged_without_the_slice(tmp_path):
+    p = fake_run(tmp_path)
+    payload = json.loads(p["results"].read_text())
+    payload["rows"] = [row for row in payload["rows"] if row["split"] != "browser"]
+    p["results"].write_text(json.dumps(payload))
+    ev = tr.run(p["results"], p["timing"], p["legacy"], p["model"], p["eval"], candidates=FAST)
+    assert ev["criteria"]["browser_delta"] is None
+    assert ev["criteria"]["browser_not_worse"] is None
