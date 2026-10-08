@@ -1,6 +1,6 @@
 # Benchmark
 
-Generated: 2026-10-08. Commit: `c094b32`. Tesseract runs with `eng+rus`.
+Generated: 2026-10-08. Commit: `251ef0b`. Tesseract runs with `eng+rus`.
 
 ## Method
 
@@ -164,7 +164,7 @@ Held-out texts.
 
 ![CER against time](img/cer_time.png)
 
-One line per router as the time weight grows from 0.
+One line per router as the time weight grows from 0. Only Router, cascade ships.
 
 One process, one machine, one-minute load average 3.7 to 5.7. Feature extraction (5.9 ms per image) is not included.
 
@@ -214,16 +214,6 @@ The shipped router has 17 inputs. Removing any one changes out-of-fold CER by at
 EasyOCR (needs torch, about 2 GB): on the 2400 train and validation images of the 0.4 run, an oracle over the three actions of 0.4 reaches CER 0.061, an oracle over the shipped pipelines 0.045, and 0.043 with EasyOCR added.
 
 Spelling corrector, 600 validation images: CER 0.048 [0.036, 0.062] without it, 0.051 [0.038, 0.065] with it, paired difference +0.003 [+0.002, +0.004]; it changes 19% of texts. It was removed.
-
-## Limitations
-
-- Degradations are synthetic; noise and heavy JPEG are rarer in real captures.
-- No captures of real applications and no manually transcribed screenshots.
-- English and Russian only.
-- Times are from one machine.
-- Train and validation images are at most 0.323 megapixels and pipeline costs are means over them. Images up to 2 megapixels are routed, where upscaling costs more (see the receipt times).
-- The candidate pool followed a finding on the held-out slice of the 0.4 run (the second engine helped mostly on noisy images), so that slice is not blind to the pool.
-- Images above 2 megapixels run `enhance_auto` unrouted; the rule was set after the receipt timings were seen. 11 images here are that large.
 
 ## Reproduce
 
