@@ -163,17 +163,6 @@ def main():
         help="Run OCR on an image file instead of capturing the screen",
     )
     parser.add_argument(
-        "--ocr-engine",
-        type=str,
-        choices=["tesseract", "easyocr", "ensemble"],
-        help="OCR engine to use (default: from config or tesseract)",
-    )
-    parser.add_argument(
-        "--list-models",
-        action="store_true",
-        help="List available OCR backends",
-    )
-    parser.add_argument(
         "--print-config",
         action="store_true",
         help="Print current configuration and exit",
@@ -229,12 +218,6 @@ def main():
         action="store_true",
         help="Show interactive preview before copying (allows confirmation/editing)",
     )
-    parser.add_argument(
-        "--benchmark",
-        type=Path,
-        metavar="IMAGE",
-        help="Benchmark OCR engines on an image file",
-    )
 
     args = parser.parse_args()
 
@@ -278,18 +261,6 @@ def main():
 
     setup_logging(args.verbose)
     logger.info("Starting SnipText...")
-
-    # Handle --benchmark flag
-    if args.benchmark:
-        config = Config.load(args.config)
-        from sniptext.benchmark import OCRBenchmark
-
-        benchmark = OCRBenchmark(config)
-        result = benchmark.benchmark_file(args.benchmark)
-        if result:
-            benchmark.print_summary()
-            return 0
-        return 1
 
     if args.list_profiles:
         profiles = Config.list_profiles(args.config)
@@ -338,20 +309,9 @@ def main():
     from sniptext.hotkey import HotkeyManager
     from sniptext.ocr import OCREngine
 
-    if args.list_models:
-        ocr = OCREngine(config)
-        print("Available OCR backends:")
-        for name in ocr.get_available_backends():
-            print(f"  • {name}")
-        return 0
-
     if args.print_config:
         print(config._render_config(), end="")
         return 0
-
-    if args.ocr_engine:
-        config.ocr_engine = args.ocr_engine
-        logger.info(f"OCR engine overridden to: {args.ocr_engine}")
 
     hotkey_manager = None
     clipboard_manager = None
@@ -434,7 +394,6 @@ def main():
 
             print(f"\nSnipText {__version__} is running")
             print(f"  Hotkey  : {config.hotkey}")
-            print(f"  Engine  : {config.ocr_engine}")
             print(f"  Config  : {args.config}")
             print("\nPress Ctrl+C to quit\n")
 

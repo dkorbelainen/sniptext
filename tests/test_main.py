@@ -41,7 +41,6 @@ def _run_main(argv, config=None):
     if config is None:
         config = MagicMock()
         config._render_config.return_value = "hotkey: <ctrl>+<alt>+t\n"
-        config.ocr_engine = "ensemble"
         config.notification_enabled = True
         config.history_enabled = False
         config.history_size = 50
@@ -85,26 +84,6 @@ class TestPrintConfig:
 # ---------------------------------------------------------------------------
 # --list-models
 # ---------------------------------------------------------------------------
-
-
-class TestListModels:
-    def test_lists_backends_and_exits_zero(self, capsys):
-        with _run_main(["--list-models"]) as (_, MockOCR, ___, ____, _____, config):
-            MockOCR.return_value.get_available_backends.return_value = ["tesseract", "ensemble"]
-            result = main()
-
-        assert result == 0
-        out = capsys.readouterr().out
-        assert "tesseract" in out
-        assert "ensemble" in out
-
-    def test_does_not_start_capture(self):
-        with _run_main(["--list-models"]) as (_, MockOCR, MockCapture, MockClipboard, _, __):
-            MockOCR.return_value.get_available_backends.return_value = []
-            main()
-
-        MockCapture.assert_not_called()
-        MockClipboard.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -172,22 +151,6 @@ class TestCaptureNow:
 # ---------------------------------------------------------------------------
 # --ocr-engine override
 # ---------------------------------------------------------------------------
-
-
-class TestOcrEngineOverride:
-    def test_override_sets_engine_on_config(self):
-        with _run_main(["--capture-now", "--ocr-engine", "tesseract"]) as (
-            _,
-            MockOCR,
-            MockCapture,
-            MockClipboard,
-            __,
-            config,
-        ):
-            MockCapture.return_value.capture_region.return_value = None
-            main()
-
-        assert config.ocr_engine == "tesseract"
 
 
 # ---------------------------------------------------------------------------
@@ -435,47 +398,3 @@ class TestInteractiveFlag:
 # ---------------------------------------------------------------------------
 # --benchmark
 # ---------------------------------------------------------------------------
-
-
-class TestBenchmarkFlag:
-    def test_benchmark_exits_zero(self, capsys, tmp_path):
-        test_image = tmp_path / "test.png"
-        test_image.write_bytes(b"fake")
-
-        with patch("sys.argv", ["sniptext", "--benchmark", str(test_image)]):
-            with patch("sniptext.config.Config.load") as MockConfigLoad:
-                with patch("sniptext.benchmark.OCRBenchmark") as MockBench:
-                    mock_config = MagicMock()
-                    MockConfigLoad.return_value = mock_config
-
-                    mock_bench_instance = MagicMock()
-                    mock_bench_instance.benchmark_file.return_value = {
-                        "tesseract": {"status": "ok"}
-                    }
-                    MockBench.return_value = mock_bench_instance
-
-                    result = main()
-
-        assert result == 0
-
-    def test_benchmark_does_not_start_capture(self, tmp_path):
-        test_image = tmp_path / "test.png"
-        test_image.write_bytes(b"fake")
-
-        with (
-            patch("sys.argv", ["sniptext", "--benchmark", str(test_image)]),
-            patch("sniptext.config.Config.load") as MockConfigLoad,
-            patch("sniptext.capture.ScreenCapture") as MockCapture,
-            patch("sniptext.benchmark.OCRBenchmark") as MockBench,
-            patch("sniptext.__main__.setup_logging"),
-        ):
-            mock_config = MagicMock()
-            MockConfigLoad.return_value = mock_config
-
-            mock_bench_instance = MagicMock()
-            mock_bench_instance.benchmark_file.return_value = {"tesseract": {"status": "ok"}}
-            MockBench.return_value = mock_bench_instance
-
-            main()
-
-        MockCapture.assert_not_called()

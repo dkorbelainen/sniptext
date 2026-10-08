@@ -11,18 +11,12 @@ from loguru import logger
 CONFIG_FIELD_COMMENTS: dict[str, str] = {
     "hotkey": "Global hotkey to trigger capture (e.g. <ctrl>+<alt>+t)",
     "display_server": "Display server: auto, wayland, or x11",
-    "ocr_engine": "OCR engine: ensemble (recommended), tesseract, or easyocr",
-    "ocr_model_path": "Directory for EasyOCR model files (leave blank for default)",
     "ocr_language": "Tesseract language code(s), e.g. eng, rus, eng+rus",
-    "ocr_confidence_threshold": "Minimum OCR confidence to accept a result (0.0–1.0)",
-    "adaptive_ensemble": "Choose Tesseract, EasyOCR or their merge per image",
+    "routing": "Choose the Tesseract preprocessing per image (false = one fixed pipeline)",
     "router_time_weight": "Error-per-second trade-off for that choice "
     "(blank = benchmarked default, 0 = accuracy only)",
     "max_image_size": "Resize images larger than this (pixels) before OCR",
-    "use_gpu": "Use GPU acceleration for EasyOCR when available (requires CUDA)",
     "notification_enabled": "Show desktop notification after each capture",
-    "enable_text_correction": "Apply automatic spell/OCR error correction",
-    "aggressive_correction": "More aggressive correction (may introduce errors)",
     "history_enabled": "Save each captured text to history file",
     "history_size": "Maximum number of history entries to keep",
 }
@@ -39,23 +33,15 @@ class Config:
     display_server: str = "auto"  # auto, wayland, x11
 
     # OCR configuration
-    ocr_engine: str = "ensemble"  # ensemble, tesseract, easyocr
-    ocr_model_path: Optional[Path] = None
     ocr_language: str = "eng"  # Language code (eng, rus, eng+rus, etc.)
-    ocr_confidence_threshold: float = 0.6
-    adaptive_ensemble: bool = True  # Choose the OCR action per image
-    router_time_weight: Optional[float] = None  # None: the default shipped with the router table
+    routing: bool = True  # Choose the Tesseract pipeline per image
+    router_time_weight: Optional[float] = None  # None: the default shipped with the router model
 
     # Performance
     max_image_size: int = 4096
-    use_gpu: bool = True  # Use GPU if available (CUDA for EasyOCR)
 
     # UI
     notification_enabled: bool = True
-
-    # Text correction
-    enable_text_correction: bool = True  # Apply OCR error corrections
-    aggressive_correction: bool = False  # Apply more aggressive corrections (may introduce errors)
 
     # History
     history_enabled: bool = True
@@ -63,21 +49,10 @@ class Config:
 
     def __post_init__(self):
         """Post-initialization setup."""
-        if self.ocr_model_path is None:
-            self.ocr_model_path = Path.home() / ".local" / "share" / "sniptext" / "models"
-
         self._validate()
 
     def _validate(self) -> None:
         """Validate config values, resetting invalid ones to defaults with a warning."""
-        valid_engines = {"ensemble", "tesseract", "easyocr"}
-        if not isinstance(self.ocr_engine, str) or self.ocr_engine not in valid_engines:
-            logger.warning(
-                f"Invalid ocr_engine={self.ocr_engine!r}; must be one of {sorted(valid_engines)}. "
-                "Resetting to 'ensemble'."
-            )
-            self.ocr_engine = "ensemble"
-
         valid_display = {"auto", "wayland", "x11"}
         if not isinstance(self.display_server, str) or self.display_server not in valid_display:
             logger.warning(
@@ -86,16 +61,9 @@ class Config:
             )
             self.display_server = "auto"
 
-        try:
-            threshold_ok = 0.0 < float(self.ocr_confidence_threshold) <= 1.0
-        except (TypeError, ValueError):
-            threshold_ok = False
-        if not threshold_ok:
-            logger.warning(
-                f"Invalid ocr_confidence_threshold={self.ocr_confidence_threshold!r}; "
-                "must be a number in (0, 1]. Resetting to 0.6."
-            )
-            self.ocr_confidence_threshold = 0.6
+        if not isinstance(self.routing, bool):
+            logger.warning(f"Invalid routing={self.routing!r}; must be true or false. Using true.")
+            self.routing = True
 
         if (
             isinstance(self.max_image_size, bool)
@@ -209,10 +177,6 @@ class Config:
         ]
         for param in deprecated:
             data.pop(param, None)
-
-        # Convert string paths to Path objects
-        if "ocr_model_path" in data and data["ocr_model_path"]:
-            data["ocr_model_path"] = Path(data["ocr_model_path"]).expanduser()
 
         # Drop unknown keys to avoid TypeError instead of crashing
         known_keys = {f.name for f in dataclasses.fields(cls)}

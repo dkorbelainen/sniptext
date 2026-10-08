@@ -14,7 +14,7 @@ def test_config_defaults():
     config = Config()
     assert config.hotkey == "<ctrl>+<alt>+t"
     assert config.ocr_language == "eng"
-    assert config.ocr_engine == "ensemble"
+    assert config.routing is True
 
 
 def test_analyzer_features():
@@ -51,7 +51,7 @@ def test_no_eager_heavy_imports(monkeypatch):
     import importlib
     import sys
 
-    heavy = {"numpy", "PIL", "pytesseract", "easyocr", "sklearn"}
+    heavy = {"numpy", "PIL", "pytesseract", "easyocr", "sklearn", "torch"}
 
     sniptext_keys = [k for k in sys.modules if k == "sniptext" or k.startswith("sniptext.")]
     for k in sniptext_keys:

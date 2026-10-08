@@ -1,9 +1,6 @@
-"""OCR engine for SnipText with multiple backends."""
+"""OCR engine: Tesseract behind a per-image choice of preprocessing pipeline."""
 
 from __future__ import annotations
-
-from abc import ABC, abstractmethod
-from typing import List
 
 import numpy as np
 from loguru import logger
@@ -11,434 +8,97 @@ from PIL import Image
 
 from .analyzer import ImageAnalyzer
 from .config import Config
+from .pipelines import LARGE_IMAGE, MAX_ROUTED_PIXELS, Pipeline, recognize
+from .router import Router
 
 
-class OCRBackend(ABC):
-    """Abstract base class for OCR backends."""
-
-    @abstractmethod
-    def recognize(self, image: Image.Image) -> str:
-        """Recognize text from image."""
-        pass
-
-    @abstractmethod
-    def is_available(self) -> bool:
-        """Check if backend is available."""
-        pass
-
-    def recognize_detailed(self, image: "Image.Image") -> tuple[str, list[list[float]] | None]:
-        """Recognize text plus per-line word confidences in [0,1].
-
-        Default: text from recognize(), no confidence. Subclasses that can
-        report confidence override this.
-        """
-        return self.recognize(image), None
-
-
-class TesseractBackend(OCRBackend):
-    """Tesseract OCR backend (fast, lightweight)."""
-
-    def __init__(self, config: Config):
-        self.config = config
-        self._tesseract = None
-        self._available = self._check_available()
-        self._analyzer = ImageAnalyzer()
-
-    def _check_available(self) -> bool:
-        """Check if Tesseract is available."""
-        try:
-            import pytesseract
-
-            self._tesseract = pytesseract
-            pytesseract.get_tesseract_version()
-            return True
-        except Exception as e:
-            logger.warning(f"Tesseract not available: {e}")
-            return False
-
-    def is_available(self) -> bool:
-        return self._available
-
-    def recognize(self, image: Image.Image) -> str:
-        """Recognize text using Tesseract with adaptive parameters."""
-        if not self.is_available():
-            raise RuntimeError("Tesseract not available")
-
-        enhanced_image = self._analyzer.enhance_for_ocr(image)
-        # PSM mode is determined after enhancement so that upscaling is
-        # already applied — small images get expanded before we measure them.
-        psm_mode = self._analyzer.suggest_psm_mode(enhanced_image)
-
-        lang_code = self._get_lang_code()
-        custom_config = f"--oem 1 --psm {psm_mode}"
-
-        logger.info(f"Tesseract: lang={lang_code}, PSM={psm_mode}")
-        logger.debug(f"Using Tesseract with PSM {psm_mode}")
-
-        text = self._tesseract.image_to_string(enhanced_image, lang=lang_code, config=custom_config)
-
-        return text.strip()
-
-    def recognize_detailed(self, image: Image.Image) -> tuple[str, list[list[float]] | None]:
-        """Tesseract text + per-line word confidences via image_to_data."""
-        if not self.is_available():
-            raise RuntimeError("Tesseract not available")
-
-        from pytesseract import Output
-
-        enhanced_image = self._analyzer.enhance_for_ocr(image)
-        psm_mode = self._analyzer.suggest_psm_mode(enhanced_image)
-        lang_code = self._get_lang_code()
-        custom_config = f"--oem 1 --psm {psm_mode}"
-
-        try:
-            data = self._tesseract.image_to_data(
-                enhanced_image,
-                lang=lang_code,
-                config=custom_config,
-                output_type=Output.DICT,
-            )
-        except Exception as e:
-            logger.debug(f"image_to_data failed, falling back to plain text: {e}")
-            return self.recognize(image), None
-
-        from collections import OrderedDict
-
-        grouped: "OrderedDict[tuple, list[tuple[int, str, float]]]" = OrderedDict()
-        n = len(data["text"])
-        for k in range(n):
-            word = data["text"][k].strip()
-            conf = float(data["conf"][k])
-            if not word or conf < 0:
-                continue
-            key = (data["block_num"][k], data["par_num"][k], data["line_num"][k])
-            grouped.setdefault(key, []).append((data["word_num"][k], word, conf / 100.0))
-
-        lines: list[str] = []
-        confs: list[list[float]] = []
-        for words in grouped.values():
-            words.sort(key=lambda t: t[0])
-            lines.append(" ".join(w for _, w, _ in words))
-            confs.append([c for _, _, c in words])
-
-        if not lines:
-            return self.recognize(image), None
-        return "\n".join(lines), confs
-
-    def _get_lang_code(self) -> str:
-        """Get Tesseract language code."""
-        return self.config.ocr_language
-
-
-class EasyOCRBackend(OCRBackend):
-    """EasyOCR backend (high accuracy)."""
-
-    def __init__(self, config: Config):
-        self.config = config
-        self._reader = None
-        self._available = None  # Lazy check
-        self._initialized = False
-
-    def _check_available(self) -> bool:
-        """Check if EasyOCR is available (lazy check on first use)."""
-        if self._available is not None:
-            return self._available
-
-        try:
-            import easyocr  # noqa: F401
-
-            self._available = True
-            return True
-        except ImportError:
-            logger.warning("EasyOCR not installed. Install with: pip install easyocr")
-            self._available = False
-            return False
-        except Exception as e:
-            # A broken torch or CUDA library raises OSError here, not ImportError.
-            logger.warning(f"EasyOCR cannot be imported: {e}")
-            self._available = False
-            return False
-
-    def is_available(self) -> bool:
-        return self._check_available()
-
-    def _lazy_init(self):
-        """Lazy initialization of EasyOCR reader."""
-        if self._initialized:
-            return
-
-        try:
-            import easyocr
-
-            langs = self._get_lang_codes()
-
-            logger.info(f"Initializing EasyOCR with languages: {langs}")
-            logger.info("First run will download models (~100-500MB)...")
-
-            model_storage = str(self.config.ocr_model_path) if self.config.ocr_model_path else None
-            self._reader = easyocr.Reader(
-                langs,
-                gpu=self.config.use_gpu,
-                model_storage_directory=model_storage,
-                verbose=False,
-            )
-
-            self._initialized = True
-            logger.info("EasyOCR initialized")
-
-        except Exception as e:
-            logger.error(f"Failed to initialize EasyOCR: {e}")
-            raise
-
-    def recognize(self, image: Image.Image) -> str:
-        """Recognize text using EasyOCR."""
-        if not self.is_available():
-            raise RuntimeError("EasyOCR not available")
-
-        self._lazy_init()
-
-        img_array = np.array(image)
-
-        results = self._reader.readtext(img_array, detail=1, paragraph=False)
-
-        lines = []
-        for detection in results:
-            bbox, text, confidence = detection
-
-            # EasyOCR confidence scores are in [0,1]; honour the configured
-            # threshold directly.  The previous * 0.5 factor effectively
-            # ignored the setting for any value ≤ 0.6.
-            if confidence >= self.config.ocr_confidence_threshold:
-                lines.append(text)
-                logger.debug(f"Text: '{text}' (confidence: {confidence:.2f})")
-            else:
-                logger.debug(f"Skipped low confidence: '{text}' ({confidence:.2f})")
-
-        return "\n".join(lines)
-
-    def recognize_detailed(self, image: Image.Image) -> tuple[str, list[list[float]] | None]:
-        """EasyOCR text + per-line word confidences (detection conf broadcast
-        to each word; one line per detection)."""
-        if not self.is_available():
-            raise RuntimeError("EasyOCR not available")
-
-        self._lazy_init()
-        img_array = np.array(image)
-        results = self._reader.readtext(img_array, detail=1, paragraph=False)
-
-        lines: list[str] = []
-        confs: list[list[float]] = []
-        for _bbox, text, confidence in results:
-            if confidence < self.config.ocr_confidence_threshold:
-                continue
-            words = text.split()
-            if not words:
-                continue
-            lines.append(" ".join(words))
-            confs.append([float(confidence)] * len(words))
-
-        return "\n".join(lines), (confs or None)
-
-    def _get_lang_codes(self) -> List[str]:
-        """Get EasyOCR language codes."""
-        # Convert Tesseract codes to EasyOCR codes
-        lang_map = {
-            "eng": "en",
-            "rus": "ru",
-            "jpn": "ja",
-            "kor": "ko",
-            "chi_sim": "ch_sim",
-            "chi_tra": "ch_tra",
-            "fra": "fr",
-            "deu": "de",
-            "spa": "es",
-        }
-
-        # Split by + for multiple languages
-        tess_langs = self.config.ocr_language.split("+")
-        easy_langs = []
-
-        for tl in tess_langs:
-            tl = tl.strip()
-            if tl in lang_map:
-                easy_langs.append(lang_map[tl])
-            else:
-                # Try to use as-is (might work)
-                easy_langs.append(tl)
-
-        return easy_langs if easy_langs else ["en"]
+class OCRError(RuntimeError):
+    """Tesseract could not run."""
 
 
 class OCREngine:
-    """Main OCR engine with multiple backend support."""
+    """Recognises text with the pipeline the router picks for each image."""
 
     def __init__(self, config: Config):
-        """
-        Initialize OCR engine.
-
-        Args:
-            config: Application configuration
-        """
         self.config = config
-        self.backends = {
-            "tesseract": TesseractBackend(config),
-            "easyocr": EasyOCRBackend(config),
-        }
-        self.backend = self._initialize_backend()
-
-        backend_name = type(self.backend).__name__.replace("Backend", "").lower()
-        logger.info(f"OCR Engine initialized with backend: {backend_name}")
-        logger.info(f"OCR Language: {config.ocr_language}")
-        logger.info(f"Text Correction: {config.enable_text_correction}")
-
-    def _initialize_backend(self) -> OCRBackend:
-        """Initialize the appropriate OCR backend."""
-        engine_name = self.config.ocr_engine.lower()
-
-        if engine_name == "easyocr":
-            backend = self.backends["easyocr"]
-            if not backend.is_available():
-                logger.warning("EasyOCR not available, falling back to Tesseract")
-                backend = self.backends["tesseract"]
-        else:
-            backend = self.backends["tesseract"]
-            if not backend.is_available():
-                logger.warning("Tesseract not available, trying EasyOCR")
-                backend = self.backends["easyocr"]
-
-        if not backend.is_available():
-            raise RuntimeError(
-                "No OCR backend available. Install either:\n"
-                "  - Tesseract: sudo pacman -S tesseract\n"
-                "  - EasyOCR: pip install easyocr"
-            )
-
-        return backend
-
-    def get_available_backends(self) -> List[str]:
-        """Get list of available backend names."""
-        return [name for name, backend in self.backends.items() if backend.is_available()]
-
-    def recognize(self, image: np.ndarray) -> str:
-        """
-        Recognize text from image.
-
-        Args:
-            image: Input image (numpy array)
-
-        Returns:
-            Recognized text
-        """
+        self.router = Router(time_weight=config.router_time_weight)
+        self._analyzer = ImageAnalyzer()
         try:
-            pil_image = self._prepare_image(image)
+            import pytesseract
 
-            if self.config.ocr_engine == "ensemble":
-                text, mode = self._recognize_ensemble(pil_image), "ensemble"
-            else:
-                text, mode = self.backend.recognize(pil_image), "single"
-
-            if text:
-                logger.info(f"Recognized text: {len(text)} characters (mode: {mode})")
-                logger.debug(f"Text preview: {text[:100]}...")
-
-                if self.config.enable_text_correction:
-                    from .ensemble import post_process_text
-
-                    text = post_process_text(
-                        text,
-                        language=self.config.ocr_language,
-                        enable_correction=True,
-                        aggressive=self.config.aggressive_correction,
-                    )
-            else:
-                logger.debug("No text recognized")
-
-            return text
-
+            pytesseract.get_tesseract_version()
         except Exception as e:
-            logger.error(f"OCR recognition failed: {e}")
+            raise OCRError(
+                "Tesseract is not available. Install it, for example: "
+                "sudo pacman -S tesseract tesseract-data-eng"
+            ) from e
+        logger.info(f"OCR language: {config.ocr_language}")
+
+    def recognize(self, image: "np.ndarray | Image.Image") -> str:
+        """Recognise the text in an image. Raises OCRError when Tesseract cannot run."""
+        if isinstance(image, np.ndarray) and image.size == 0:
+            return ""
+        prepared = self._prepare_image(image)
+        if prepared.width == 0 or prepared.height == 0:
+            return ""
+        text, pipeline = self._route(prepared)
+        if not text:
+            logger.debug("No text recognized")
+            return ""
+        logger.info(f"Recognized text: {len(text)} characters (pipeline: {pipeline})")
+        return text
+
+    def _run_fixed(self, pipeline: Pipeline, image: Image.Image) -> tuple[str, list[list[float]]]:
+        """A pass with nothing to fall back on: its failure is the capture's failure."""
+        try:
+            return recognize(pipeline, image, self.config.ocr_language)
+        except Exception as e:
+            raise OCRError(f"Tesseract failed: {e}") from e
+
+    def _run_other(self, pipeline: Pipeline, image: Image.Image) -> str:
+        """Text of a non-default pipeline; empty when it fails, so the default takes over."""
+        try:
+            return recognize(pipeline, image, self.config.ocr_language)[0]
+        except Exception as e:
+            logger.warning(
+                f"Pipeline {pipeline.name} failed ({e}); using {self.router.default.name}"
+            )
             return ""
 
-    def _recognize_ensemble(self, image: Image.Image) -> str:
-        """
-        Recognize using ensemble of available backends.
+    def _choose(self, image: Image.Image, first_conf: list[list[float]] | None = None) -> Pipeline:
+        try:
+            return self.router.choose(self._analyzer.extract_features(image), first_conf)
+        except Exception as e:
+            logger.warning(f"Routing failed ({e}); using {self.router.default.name}")
+            return self.router.default
 
-        Args:
-            image: PIL Image
-
-        Returns:
-            Combined text result
-        """
-        from .ensemble import EnsembleOCR
-
-        results: list[str] = []
-        confidences: list[list[list[float]] | None] = []
-
-        for name, backend in self.backends.items():
-            if backend.is_available():
-                try:
-                    logger.debug(f"Running {name}...")
-                    text, confs = backend.recognize_detailed(image)
-                    if text:
-                        results.append(text)
-                        confidences.append(confs)
-                        logger.debug(f"{name}: {len(text)} chars")
-                except Exception as e:
-                    logger.warning(f"{name} failed: {e}")
-
-        if not results:
-            return ""
-
-        if len(results) == 1:
-            return results[0]
-
-        ensemble = EnsembleOCR()
-        combined = ensemble.combine_results(results, confidences)
-
-        logger.info(f"Ensemble combined {len(results)} results")
-
-        return combined
+    def _route(self, image: Image.Image) -> tuple[str, str]:
+        """Text and the name of the pipeline that produced it."""
+        if image.width * image.height > MAX_ROUTED_PIXELS:
+            return self._run_fixed(LARGE_IMAGE, image)[0], LARGE_IMAGE.name
+        default = self.router.default
+        if not (self.config.routing and self.router.available):
+            return self._run_fixed(default, image)[0], default.name
+        if self.router.policy == "cascade":
+            first_text, first_conf = self._run_fixed(default, image)
+            chosen = self._choose(image, first_conf)
+            text = "" if chosen == default else self._run_other(chosen, image)
+            return (text, chosen.name) if text else (first_text, default.name)
+        chosen = self._choose(image)
+        text = "" if chosen == default else self._run_other(chosen, image)
+        return (text, chosen.name) if text else (self._run_fixed(default, image)[0], default.name)
 
     def _prepare_image(self, image: "np.ndarray | Image.Image") -> Image.Image:
-        """
-        Convert image to PIL Image, resizing if it exceeds max_image_size.
-
-        Args:
-            image: Input image as a numpy array or PIL Image
-
-        Returns:
-            PIL Image
-        """
-        if isinstance(image, Image.Image):
-            pil_image = image.copy()
-        elif len(image.shape) == 2:
-            pil_image = Image.fromarray(image, mode="L")
-        elif len(image.shape) == 3:
-            if image.shape[2] == 3:
-                pil_image = Image.fromarray(image, mode="RGB")
-            elif image.shape[2] == 4:
-                pil_image = Image.fromarray(image, mode="RGBA")
-            else:
-                logger.warning(f"Unexpected image shape: {image.shape}")
-                pil_image = Image.fromarray(image)
-        else:
-            logger.warning(f"Unexpected image shape: {image.shape}")
-            pil_image = Image.fromarray(image)
-
-        if pil_image.mode == "RGBA":
+        """An RGB or grayscale copy, transparency over white, no side above max_image_size."""
+        pil_image = image.copy() if isinstance(image, Image.Image) else Image.fromarray(image)
+        if pil_image.mode in ("RGBA", "LA") or "transparency" in pil_image.info:
+            rgba = pil_image.convert("RGBA")
+            pil_image = Image.new("RGB", rgba.size, "white")
+            pil_image.paste(rgba, mask=rgba.getchannel("A"))
+        elif pil_image.mode not in ("RGB", "L"):
             pil_image = pil_image.convert("RGB")
-
-        max_size = self.config.max_image_size
-        # Validate max_image_size to avoid Pillow errors with non-positive sizes
-        if isinstance(max_size, int) and max_size >= 1:
-            if max(pil_image.width, pil_image.height) > max_size:
-                pil_image.thumbnail((max_size, max_size), Image.LANCZOS)
-                logger.debug(
-                    f"Image resized to {pil_image.width}x{pil_image.height} (max_image_size={max_size})"
-                )
-        else:
-            logger.warning(
-                f"Invalid max_image_size={max_size!r} in config; expected positive integer. Skipping resizing."
-            )
-
+        limit = self.config.max_image_size
+        if max(pil_image.width, pil_image.height) > limit:
+            pil_image.thumbnail((limit, limit), Image.LANCZOS)
+            logger.debug(f"Image resized to {pil_image.width}x{pil_image.height}")
         return pil_image
