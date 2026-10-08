@@ -50,6 +50,8 @@ def _output_result(
     print(text)
     if not clipboard_manager.copy(text):
         logger.error("Failed to copy text to clipboard")
+        if notify:
+            send("✗ Could not copy the text to the clipboard")
         return 1
     print(f"\n✓ Copied {len(text)} characters to clipboard")
 
@@ -161,7 +163,7 @@ def main():
         except FileNotFoundError as e:
             print(f"✗ {e}")
             print("  Run 'sniptext --list-profiles' to see available profiles.")
-            return 1
+            return 2
         logger.info(f"Loaded config with profile {args.profile!r}")
     else:
         config = Config.load(args.config)

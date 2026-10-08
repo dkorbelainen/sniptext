@@ -146,11 +146,6 @@ class TestCaptureNow:
 
 
 # ---------------------------------------------------------------------------
-# --ocr-engine override
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
 # sniptext.__init__ lazy imports
 # ---------------------------------------------------------------------------
 
@@ -171,12 +166,10 @@ class TestInitLazyImports:
 class TestFileInput:
     def test_file_runs_ocr_and_copies(self, tmp_path, capsys):
         img_path = tmp_path / "test.png"
-        fake_array = MagicMock()
 
         with (
             _run_main(["--file", str(img_path)]) as (_, MockOCR, ___, MockClipboard, __, ____),
             patch("PIL.Image.open") as MockOpen,
-            patch("numpy.array", return_value=fake_array),
         ):
             MockOpen.return_value = MagicMock()
             MockOCR.return_value.recognize.return_value = "hello from file"
@@ -192,7 +185,6 @@ class TestFileInput:
         with (
             _run_main(["--file", str(img_path)]) as (_, MockOCR, ___, MockClipboard, __, ____),
             patch("PIL.Image.open") as MockOpen,
-            patch("numpy.array", return_value=MagicMock()),
         ):
             MockOpen.return_value = MagicMock()
             MockOCR.return_value.recognize.return_value = ""
@@ -327,7 +319,7 @@ class TestProfiles:
         assert "fast" in out
         assert "gpu" in out
 
-    def test_profile_missing_returns_one(self, capsys):
+    def test_a_missing_profile_is_a_bad_argument(self, capsys):
         with (
             patch("sys.argv", ["sniptext", "--profile", "nosuch", "--capture-now"]),
             patch("sniptext.config.Config") as MockConfig,
@@ -338,12 +330,12 @@ class TestProfiles:
             )
             result = main()
 
-        assert result == 1
+        assert result == 2
         assert "nosuch" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------
-# --benchmark
+# default action, notifications, failures
 # ---------------------------------------------------------------------------
 
 
@@ -385,6 +377,14 @@ class TestNotifications:
     def test_an_empty_capture_says_so(self):
         _, send = self.capture("")
         assert send.call_args.args == ("No text found in selected area",)
+
+    def test_a_failed_copy_is_notified(self):
+        with _run_main([]) as (_, MockOCR, MockCapture, MockClipboard, MockSend, _config):
+            MockCapture.return_value.capture_region.return_value = np.zeros((4, 4, 3), np.uint8)
+            MockOCR.return_value.recognize.return_value = "hello"
+            MockClipboard.return_value.copy.return_value = False
+            assert main() == 1
+        assert MockSend.call_args.args == ("✗ Could not copy the text to the clipboard",)
 
     def test_no_notification_when_disabled(self):
         config = MagicMock(notification_enabled=False, history_enabled=False, history_size=50)
