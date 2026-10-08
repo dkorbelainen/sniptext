@@ -6,9 +6,6 @@ from sniptext.config import Config
 
 
 class TestConfigDefaults:
-    def test_hotkey(self):
-        assert Config().hotkey == "<ctrl>+<alt>+t"
-
     def test_max_image_size_default(self):
         assert Config().max_image_size == 4096
 
@@ -24,7 +21,6 @@ class TestConfigSaveLoad:
 
         loaded = Config.load(config_path)
 
-        assert loaded.hotkey == original.hotkey
         assert loaded.ocr_language == original.ocr_language
         assert loaded.routing == original.routing
 
@@ -35,16 +31,15 @@ class TestConfigSaveLoad:
         config = Config.load(config_path)
 
         assert config_path.exists()
-        assert config.hotkey == "<ctrl>+<alt>+t"
+        assert config.ocr_language == "eng"
 
     def test_save_load_custom_values(self, tmp_path):
         config_path = tmp_path / "config.yaml"
-        original = Config(hotkey="<ctrl>+<shift>+s", ocr_language="rus", max_image_size=1024)
+        original = Config(ocr_language="rus", max_image_size=1024)
         original.save(config_path)
 
         loaded = Config.load(config_path)
 
-        assert loaded.hotkey == "<ctrl>+<shift>+s"
         assert loaded.ocr_language == "rus"
         assert loaded.max_image_size == 1024
 
@@ -68,7 +63,7 @@ class TestConfigSaveLoad:
             "hotkey: <ctrl>+<alt>+t\nocr_language: eng\ntotally_unknown_key: some_value\n"
         )
         config = Config.load(config_path)
-        assert config.hotkey == "<ctrl>+<alt>+t"
+        assert config.ocr_language == "eng"
         assert not hasattr(config, "totally_unknown_key")
 
 
@@ -266,6 +261,6 @@ class TestRoutingConfig:
         rendered = Config()._render_config()
         for key in ("ocr_engine", "ocr_model_path", "use_gpu", "adaptive_ensemble",
                     "ocr_confidence_threshold", "enable_text_correction",
-                    "aggressive_correction"):  # fmt: skip
+                    "aggressive_correction", "hotkey"):  # fmt: skip
             assert key not in rendered
         assert "routing: true" in rendered

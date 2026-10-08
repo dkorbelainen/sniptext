@@ -9,7 +9,6 @@ import yaml
 from loguru import logger
 
 CONFIG_FIELD_COMMENTS: dict[str, str] = {
-    "hotkey": "Global hotkey to trigger capture (e.g. <ctrl>+<alt>+t)",
     "display_server": "Display server: auto, wayland, or x11",
     "ocr_language": "Tesseract language code(s), e.g. eng, rus, eng+rus",
     "routing": "Choose the Tesseract preprocessing per image (false = one fixed pipeline)",
@@ -25,9 +24,6 @@ CONFIG_FIELD_COMMENTS: dict[str, str] = {
 @dataclass
 class Config:
     """Application configuration."""
-
-    # Hotkey configuration
-    hotkey: str = "<ctrl>+<alt>+t"
 
     # Display server
     display_server: str = "auto"  # auto, wayland, x11

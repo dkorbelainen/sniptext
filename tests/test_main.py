@@ -3,7 +3,9 @@
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
+from PIL import Image
 
 from sniptext.__main__ import main, setup_logging
 
@@ -40,7 +42,7 @@ def _run_main(argv, config=None):
     """Patch sys.argv and common imports, then call main()."""
     if config is None:
         config = MagicMock()
-        config._render_config.return_value = "hotkey: <ctrl>+<alt>+t\n"
+        config._render_config.return_value = "ocr_language: eng\n"
         config.notification_enabled = True
         config.history_enabled = False
         config.history_size = 50
@@ -51,12 +53,12 @@ def _run_main(argv, config=None):
         patch("sniptext.ocr.OCREngine") as MockOCR,
         patch("sniptext.capture.ScreenCapture") as MockCapture,
         patch("sniptext.clipboard.ClipboardManager") as MockClipboard,
-        patch("sniptext.hotkey.HotkeyManager") as MockHotkey,
+        patch("sniptext.notify.send") as MockSend,
         patch("sniptext.__main__.setup_logging"),
         patch("sniptext.history.HistoryManager"),
     ):
         MockConfig.load.return_value = config
-        yield MockConfig, MockOCR, MockCapture, MockClipboard, MockHotkey, config
+        yield MockConfig, MockOCR, MockCapture, MockClipboard, MockSend, config
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +72,7 @@ class TestPrintConfig:
             result = main()
 
         assert result == 0
-        assert "hotkey" in capsys.readouterr().out
+        assert "ocr_language" in capsys.readouterr().out
 
     def test_does_not_start_capture_components(self):
         with _run_main(["--print-config"]) as (_, MockOCR, MockCapture, MockClipboard, _, __):
@@ -79,11 +81,6 @@ class TestPrintConfig:
         MockOCR.assert_not_called()
         MockCapture.assert_not_called()
         MockClipboard.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
-# --list-models
-# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -346,55 +343,81 @@ class TestProfiles:
 
 
 # ---------------------------------------------------------------------------
-# --interactive
-# ---------------------------------------------------------------------------
-
-
-class TestInteractiveFlag:
-    def test_interactive_with_confirm_returns_zero(self, capsys):
-        fake_image = MagicMock()
-        with _run_main(["--capture-now", "--interactive"]) as (
-            _,
-            MockOCR,
-            MockCapture,
-            MockClipboard,
-            _,
-            config,
-        ):
-            MockCapture.return_value.capture_region.return_value = fake_image
-            MockOCR.return_value.recognize.return_value = "hello world"
-            MockClipboard.return_value.copy.return_value = True
-
-            with patch("sniptext.preview.TextPreview.show_preview") as mock_preview:
-                mock_preview.return_value = ("hello world", True)
-                result = main()
-
-        assert result == 0
-        assert "hello world" in capsys.readouterr().out
-        mock_preview.assert_called_once_with("hello world", allow_edit=True)
-
-    def test_interactive_with_cancel_returns_zero(self, capsys):
-        fake_image = MagicMock()
-        with _run_main(["--capture-now", "--interactive"]) as (
-            _,
-            MockOCR,
-            MockCapture,
-            MockClipboard,
-            _,
-            config,
-        ):
-            MockCapture.return_value.capture_region.return_value = fake_image
-            MockOCR.return_value.recognize.return_value = "hello"
-            MockClipboard.return_value.copy.return_value = False
-
-            with patch("sniptext.preview.TextPreview.show_preview") as mock_preview:
-                mock_preview.return_value = ("hello", False)
-                result = main()
-
-        assert result == 0
-        MockClipboard.return_value.copy.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
 # --benchmark
 # ---------------------------------------------------------------------------
+
+
+class TestSingleCapture:
+    def test_no_arguments_captures_once(self, capsys):
+        with _run_main([]) as (_, MockOCR, MockCapture, MockClipboard, _send, _config):
+            MockCapture.return_value.capture_region.return_value = np.zeros((4, 4, 3), np.uint8)
+            MockOCR.return_value.recognize.return_value = "hello"
+            MockClipboard.return_value.copy.return_value = True
+            assert main() == 0
+        assert MockCapture.return_value.capture_region.call_count == 1
+        assert "hello" in capsys.readouterr().out
+
+    @pytest.mark.parametrize("flag", ["--client", "--interactive", "--list-models", "--benchmark"])
+    def test_removed_flags_are_rejected(self, flag):
+        with _run_main([flag]), pytest.raises(SystemExit) as error:
+            main()
+        assert error.value.code == 2
+
+    def test_serve_command_is_rejected(self):
+        with _run_main(["serve"]), pytest.raises(SystemExit) as error:
+            main()
+        assert error.value.code == 2
+
+
+class TestNotifications:
+    def capture(self, text, argv=()):
+        with _run_main(list(argv)) as (_, MockOCR, MockCapture, MockClipboard, MockSend, _config):
+            MockCapture.return_value.capture_region.return_value = np.zeros((4, 4, 3), np.uint8)
+            MockOCR.return_value.recognize.return_value = text
+            MockClipboard.return_value.copy.return_value = True
+            code = main()
+        return code, MockSend
+
+    def test_a_capture_notifies_with_a_preview(self):
+        code, send = self.capture("hello world")
+        assert code == 0 and send.call_args.args == ("✓ hello world",)
+
+    def test_an_empty_capture_says_so(self):
+        _, send = self.capture("")
+        assert send.call_args.args == ("No text found in selected area",)
+
+    def test_no_notification_when_disabled(self):
+        config = MagicMock(notification_enabled=False, history_enabled=False, history_size=50)
+        with _run_main([], config) as (_, MockOCR, MockCapture, MockClipboard, MockSend, _c):
+            MockCapture.return_value.capture_region.return_value = np.zeros((4, 4, 3), np.uint8)
+            MockOCR.return_value.recognize.return_value = "hello"
+            MockClipboard.return_value.copy.return_value = True
+            main()
+        assert MockSend.call_count == 0
+
+    def test_a_file_run_does_not_notify(self, tmp_path):
+        path = tmp_path / "a.png"
+        Image.new("RGB", (8, 8), "white").save(path)
+        _, send = self.capture("hello", ["--file", str(path)])
+        assert send.call_count == 0
+
+
+class TestOcrFailure:
+    def test_the_reason_is_shown_and_the_exit_code_is_one(self):
+        from sniptext.ocr import OCRError
+
+        with _run_main([]) as (_, MockOCR, MockCapture, _clip, MockSend, _config):
+            MockCapture.return_value.capture_region.return_value = np.zeros((4, 4, 3), np.uint8)
+            MockOCR.return_value.recognize.side_effect = OCRError("Tesseract failed: no 'ell'")
+            assert main() == 1
+        assert "no 'ell'" in MockSend.call_args.args[0]
+
+    def test_a_palette_png_reaches_the_engine_as_an_image(self, tmp_path):
+        path = tmp_path / "p.png"
+        Image.new("RGB", (8, 8), (200, 30, 30)).convert("P").save(path)
+        with _run_main(["--file", str(path)]) as (_, MockOCR, _cap, MockClipboard, _send, _c):
+            MockOCR.return_value.recognize.return_value = "x"
+            MockClipboard.return_value.copy.return_value = True
+            assert main() == 0
+        argument = MockOCR.return_value.recognize.call_args.args[0]
+        assert isinstance(argument, Image.Image) and argument.mode == "P"

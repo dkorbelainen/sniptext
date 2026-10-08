@@ -12,7 +12,6 @@ def test_config_defaults():
     from sniptext.config import Config
 
     config = Config()
-    assert config.hotkey == "<ctrl>+<alt>+t"
     assert config.ocr_language == "eng"
     assert config.routing is True
 
