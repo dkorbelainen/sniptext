@@ -35,22 +35,18 @@ _SLICES = (
     (
         "confirm",
         "Fresh texts",
-        "Rendered like the held-out slice from texts that share no six-word run with any other "
-        "slice. Generated and read after the shipped policy was fixed.\n",
+        "No six-word run shared with any other slice. Generated after the shipped policy was "
+        "fixed.\n",
     ),
     ("test", "Held-out texts", ""),
-    ("unseen_font", "Unseen fonts", "Two font families that appear in no other slice.\n"),
+    ("unseen_font", "Unseen fonts", "Two font families used in no other slice.\n"),
     (
         "browser",
         "Browser pages",
-        "Held-out texts laid out by headless Chrome as prose, code and interface elements, in "
-        "light and dark themes, at device scale 1, 1.5 and 2, with no degradation.\n",
+        "Held-out texts rendered by headless Chrome: light and dark themes, device scale 1, 1.5 "
+        "and 2, no degradation.\n",
     ),
-    (
-        "ood",
-        "Receipts",
-        "Photographed receipts (SROIE), unlike anything in the training data.\n",
-    ),
+    ("ood", "Receipts", "Photographed receipts (SROIE).\n"),
 )
 
 
@@ -185,8 +181,8 @@ def _rule_change(ev: dict) -> list:
         return []
     label = f"router_{first}"
     out = (
-        "The rule fixed before the measurement was different: within 0.005 out-of-fold CER the "
-        f"faster router ships. It chose {_FIXED[label]}, whose held-out CER is "
+        "The rule fixed before the measurement (within 0.005 out-of-fold CER the faster router "
+        f"ships) chose {_FIXED[label]}. Its held-out CER is "
         f"{_relation(c['preregistered_test_delta'])} the best static pipeline's "
         f"({_signed(c['preregistered_test_delta'])})"
     )
@@ -196,8 +192,8 @@ def _rule_change(ev: dict) -> list:
         out += f" and, on images without added noise, {_relation(delta)} it ({_signed(delta)})"
     return [
         out + ". The rule was replaced after the held-out results were seen, so the held-out "
-        "numbers of the shipped router are not a clean estimate. The fresh-text slice was "
-        "generated afterwards for that reason.\n"
+        "numbers of the shipped router are not a clean estimate. The fresh texts were generated "
+        "afterwards.\n"
     ]
 
 
@@ -370,32 +366,29 @@ def render(ev: dict, corrector: dict, environment: dict | None, commit: str, gen
     splits = ", ".join(f"{name} {count}" for name, count in card["by_split"].items())
     actions = ", ".join(f"`{name}`" for name in ev["actions"])
     loads = [sample[0] for timing_pass in ev["loadavg"] for sample in timing_pass]
-    chrome = f" Browser pages were rendered by {environment['chrome']}." if environment else ""
+    chrome = f" Browser: {environment['chrome']}." if environment else ""
 
     out = [
         "# Benchmark\n",
         f"Generated: {generated}. Commit: `{commit}`. Tesseract runs with `{card['language']}`.\n",
         "## Method\n",
-        "A pipeline is a preprocessing chain (dark-theme inversion, 2x upscaling, median or "
-        "Gaussian filter, or the preprocessing of version 0.4) plus a Tesseract page-segmentation "
-        "mode. A router predicts the character error rate (CER) of each shipped pipeline and "
-        "takes the one with the lowest predicted CER plus a time weight times its seconds. Two "
-        "routers are compared: one sees only image statistics before any OCR; the cascade runs "
-        "the default pipeline first and also sees its word confidences. If the chosen pipeline "
-        "returns no text the default runs instead; the numbers include that.\n",
-        "CER is the edit distance to the ground truth over its length, whitespace-normalised, "
-        "case kept, clipped at 1 per image. Intervals are 95% bootstrap intervals over texts, "
-        "because renders of one text are not independent. Differences are paired.\n",
+        "A pipeline is a preprocessing chain plus a Tesseract page-segmentation mode. A router "
+        "predicts the character error rate (CER) of each shipped pipeline and takes the lowest "
+        "predicted CER plus a time weight times the pipeline's seconds. Two routers are "
+        "compared: one sees image statistics only; the cascade runs the default pipeline first "
+        "and also sees its word confidences. An empty result falls back to the default "
+        "pipeline.\n",
+        "CER is the edit distance over the ground-truth length, whitespace-normalised, clipped "
+        "at 1. Intervals are 95% bootstrap intervals over texts. Differences are paired.\n",
         "## Data\n",
         f"{card['n']} images from {card['texts']} texts: {splits}. English "
         f"({card['by_lang']['en']}) and Russian ({card['by_lang']['ru']}) renders of prose "
         f"({card['by_content']['prose']}), code ({card['by_content']['code']}) and interface "
-        f"strings ({card['by_content']['ui']}), from UD English-EWT, UD Russian-GSD and the "
-        "CPython 3.12 standard library. Each render has a random font, a size from 11 to 30 px, "
-        "one of six colour schemes and up to two degradations out of blur, noise, JPEG, "
-        "rescaling and low contrast.\n",
-        "A text belongs to exactly one of train, validation and test. The receipts, the browser "
-        f"pages and the fresh texts are never used for fitting or selection.{chrome}\n",
+        f"strings ({card['by_content']['ui']}) from UD English-EWT, UD Russian-GSD and CPython "
+        "3.12. Random font, 11 to 30 px, six colour schemes, up to two degradations out of blur, "
+        "noise, JPEG, rescaling and low contrast.\n",
+        "Train, validation and test share no text. Receipts, browser pages and fresh texts are "
+        f"not used for fitting or selection.{chrome}\n",
         "## Shipped policy\n",
     ]
 
@@ -405,26 +398,23 @@ def render(ev: dict, corrector: dict, environment: dict | None, commit: str, gen
         mine, theirs = ship["oof"], ev["policies"][other]["oof"]
         out += [
             f"`{ev['shipped']}` over {actions}: {_spec(ship['spec'])}, time weight "
-            f"{ship['time_weight']:.3f}. It is scored through `sniptext.router.Router` on the "
-            "model file packaged with the app.\n",
-            "Of the two routers the one with the lower out-of-fold CER ships: "
-            f"{_FIXED['router_' + ev['shipped']]} has {mine['cer']:.3f} at "
+            f"{ship['time_weight']:.3f}.\n",
+            f"Out-of-fold CER: {_FIXED['router_' + ev['shipped']]} {mine['cer']:.3f} at "
             f"{mine['time'] * 1000:.0f} ms per image, {_FIXED['router_' + other]} "
-            f"{theirs['cer']:.3f} at {theirs['time'] * 1000:.0f} ms.\n",
+            f"{theirs['cer']:.3f} at {theirs['time'] * 1000:.0f} ms. The lower one ships.\n",
             *_rule_change(ev),
         ]
     else:
         out.append(f"No router ships: `{ev['best_static']}` runs on every image.\n")
     out += [
-        "Criteria 1 to 3 were fixed before the first measurement, criterion 4 before the fresh "
-        "texts were read. Paired differences in brackets.\n"
+        "Criteria, with paired differences. 1 to 3 were fixed before the first measurement, 4 "
+        "before the fresh texts were read.\n"
         if ev["criteria"]["confirm_delta"]
-        else "Criteria fixed before the measurement, paired differences in brackets.\n",
+        else "Criteria fixed before the measurement, with paired differences.\n",
         _criteria(ev),
         "## Results\n",
-        "Mean CER with its interval, paired difference to the best static pipeline, mean time "
-        "per image. The 0.4 router's times come from the 0.4 run, with EasyOCR on a GPU, and are "
-        "not comparable with the other rows.\n",
+        "CER with its interval, paired difference to the best static pipeline, mean time per "
+        "image. The 0.4 router's times are from a GPU run and not comparable.\n",
     ]
     for key, title, intro in _SLICES:
         if key in ev["slices"]:
@@ -433,8 +423,8 @@ def render(ev: dict, corrector: dict, environment: dict | None, commit: str, gen
     if ev["noise_split"]:
         out += [
             "## Added noise\n",
-            "The degradation on which the pipelines differ most. Mean CER per group, then each "
-            "router's paired difference. This split was not planned before the measurement.\n",
+            "Mean CER per group, then paired differences. The split was not planned before the "
+            "measurement.\n",
         ]
         for name, heading in (("confirm", "Fresh texts"), ("test", "Held-out texts")):
             if name in ev["noise_split"]:
@@ -448,73 +438,63 @@ def render(ev: dict, corrector: dict, environment: dict | None, commit: str, gen
     if routed:
         out += [
             "![CER against time](img/cer_time.png)\n",
-            "Each line traces one router as the time weight grows from 0. The cascade runs the "
-            "default pipeline on every image, so its time cannot fall below that pipeline's.\n",
+            "One line per router as the time weight grows from 0.\n",
         ]
     out.append(
-        "Times were measured in one process on one machine with a one-minute load average "
-        f"between {min(loads):.1f} and {max(loads):.1f}. Feature extraction "
-        f"({ev['feature_time_mean'] * 1000:.1f} ms per image) is not included.\n"
+        f"One process, one machine, one-minute load average {min(loads):.1f} to "
+        f"{max(loads):.1f}. Feature extraction ({ev['feature_time_mean'] * 1000:.1f} ms per "
+        "image) is not included.\n"
     )
 
     out += [
         "## Pipeline selection\n",
-        f"{len(ev['pool'])} candidates; `{V04.name}` is what version 0.4 ran.\n",
+        f"{len(ev['pool'])} candidates; `{V04.name}` is the pipeline of 0.4.\n",
         _pool_table(ev),
-        "Selection is greedy on train and validation texts: start from the best static "
-        "pipeline, add the candidate that lowers the out-of-fold CER of the routed set most, "
-        "stop when the gain is below 0.003 or at four pipelines.\n",
+        "Greedy on train and validation texts: start from the best static pipeline, add the "
+        "candidate that lowers out-of-fold CER most, stop below a gain of 0.003 or at four "
+        "pipelines.\n",
         _steps_table(ev),
     ]
 
     if routed:
         out += [
             "## Model selection\n",
-            "Grouped 5-fold cross-validation over train and validation texts, ranked by the "
-            "regret of the resulting policy to the oracle. The time weight is the largest one "
-            "that keeps out-of-fold CER within 0.005 of the accuracy-only policy.\n",
+            "Grouped 5-fold cross-validation over train and validation texts, ranked by regret "
+            "to the oracle. The time weight is the largest that keeps out-of-fold CER within "
+            "0.005 of the accuracy-only policy.\n",
             _selection_table(ev),
             _feature_note(ev["policies"][ev["shipped"]]),
         ]
 
     easy = ev["easyocr"]
     val = corrector["val"]
-    decision = (
-        "It stays on by default."
-        if corrector["decision"] == "keep"
-        else "The interval does not lie below zero, so the correction was removed."
-    )
+    decision = "It stays on by default." if corrector["decision"] == "keep" else "It was removed."
     size_note = (
-        f"{card['unrouted']} images here are that large and are scored that way."
+        f"{card['unrouted']} images here are that large."
         if card["unrouted"]
-        else "No such image is in this corpus."
+        else "No image here is that large."
     )
     out += [
         "## Removed components\n",
-        "EasyOCR needs torch, about 2 GB installed. On the "
-        f"{easy['n']} train and validation images of the 0.4 run, an oracle over the three "
-        f"actions of 0.4 (Tesseract, EasyOCR, their merge) reaches CER {easy['v04_actions']:.3f}. "
-        f"An oracle over the pipelines shipped now reaches {easy['shipped']:.3f}; adding EasyOCR "
-        f"to them gives {easy['with_easyocr']:.3f}.\n",
-        f"The spelling corrector of 0.4, on the {val['n']} validation images: CER "
-        f"{_ci(val['cer_raw'])} without it, {_ci(val['cer_corrected'])} with it, paired "
-        f"difference {_signed(val['delta'])}; it changes the text of "
-        f"{val['changed_share'] * 100:.0f}% of images. {decision}\n",
+        f"EasyOCR (needs torch, about 2 GB): on the {easy['n']} train and validation images of "
+        f"the 0.4 run, an oracle over the three actions of 0.4 reaches CER "
+        f"{easy['v04_actions']:.3f}, an oracle over the shipped pipelines {easy['shipped']:.3f}, "
+        f"and {easy['with_easyocr']:.3f} with EasyOCR added.\n",
+        f"Spelling corrector, {val['n']} validation images: CER {_ci(val['cer_raw'])} without "
+        f"it, {_ci(val['cer_corrected'])} with it, paired difference {_signed(val['delta'])}; it "
+        f"changes {val['changed_share'] * 100:.0f}% of texts. {decision}\n",
         "## Limitations\n",
-        "- The degradations are synthetic. Noise and heavy JPEG are rarer in real captures than "
-        "here.\n"
-        "- The browser pages are not captures of real applications, and no manually transcribed "
-        "screenshots are included.\n"
+        "- Degradations are synthetic; noise and heavy JPEG are rarer in real captures.\n"
+        "- No captures of real applications and no manually transcribed screenshots.\n"
         "- English and Russian only.\n"
         "- Times are from one machine.\n"
         f"- Train and validation images are at most {card['dev_max_pixels'] / 1e6:.3f} megapixels "
-        "and the pipeline costs are means over them. The app routes images up to 2 megapixels, "
-        "where upscaling costs more; the receipts table shows times at that size.\n"
-        "- The candidate pool followed something seen on the held-out slice of the 0.4 run (the "
-        "second engine helped mostly on noisy images), so that slice is not blind to the design "
-        "of the pool.\n"
-        f"- Images above 2 megapixels are not routed and run `{LARGE_IMAGE.name}`. That rule was "
-        f"set after the timings of the receipts above the limit were seen. {size_note}\n",
+        "and pipeline costs are means over them. Images up to 2 megapixels are routed, where "
+        "upscaling costs more (see the receipt times).\n"
+        "- The candidate pool followed a finding on the held-out slice of the 0.4 run (the "
+        "second engine helped mostly on noisy images), so that slice is not blind to the pool.\n"
+        f"- Images above 2 megapixels run `{LARGE_IMAGE.name}` unrouted; the rule was set after "
+        f"the receipt timings were seen. {size_note}\n",
         "## Reproduce\n",
         "```bash\n"
         "venv/bin/python benchmarks/browser.py            # browser pages (needs Chrome)\n"
@@ -523,12 +503,11 @@ def render(ev: dict, corrector: dict, environment: dict | None, commit: str, gen
         "venv/bin/python benchmarks/train_router.py       # selection, evaluation, packaged model\n"
         "venv/bin/python benchmarks/report.py             # this file and its figure\n"
         "```\n",
-        "The 0.4 rows come from `benchmarks/legacy_v04.json`, frozen from version 0.4.0.\n",
+        "0.4 rows: `benchmarks/legacy_v04.json`, frozen from 0.4.0.\n",
     ]
     if corrector["decision"] != "keep":
         out.append(
-            "The corrector numbers come from `benchmarks/corrector_eval.json`, measured before "
-            "the corrector was removed.\n"
+            "Corrector numbers: `benchmarks/corrector_eval.json`, measured before its removal.\n"
         )
     return "\n".join(out)
 

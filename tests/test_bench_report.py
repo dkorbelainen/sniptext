@@ -75,7 +75,7 @@ def test_model_selection_shows_the_best_candidate_of_each_kind(tmp_path):
 def test_a_static_model_is_reported_as_such(tmp_path):
     text = report.render(evaluation(tmp_path, helpful=False), CORRECTOR, None, "c", "d")
     assert "No router ships: `p_base` runs on every image." in text
-    for absent in ("![CER against time]", "## Model selection", "rendered by"):
+    for absent in ("![CER against time]", "## Model selection", "Browser: "):
         assert absent not in text
     assert "**not met**" in text
 
@@ -141,5 +141,6 @@ def test_limitations_state_the_fitted_size_range_and_the_disclosures(tmp_path):
     text = report.render(evaluation(tmp_path), CORRECTOR, None, "c", "d")
     limitations = text.split("## Limitations")[1]
     assert "0.001 megapixels" in limitations
-    assert "seen on the held-out slice of the 0.4 run" in limitations
-    assert "after the timings of the receipts above the limit were seen" in limitations
+    assert "finding on the held-out slice of the 0.4 run" in limitations
+    assert "after the receipt timings were seen" in limitations
+    assert len(text.split()) < 1900
