@@ -75,6 +75,7 @@ def test_a_recognition_imports_no_heavy_dependency():
         "from sniptext.config import Config\n"
         "from sniptext.ocr import OCREngine\n"
         "with patch('pytesseract.get_tesseract_version', return_value='5'), "
+        "patch('pytesseract.get_languages', return_value=['eng']), "
         "patch('pytesseract.image_to_data', return_value={'text': [], 'conf': [], "
         "'block_num': [], 'par_num': [], 'line_num': [], 'word_num': []}):\n"
         "    OCREngine(Config()).recognize(np.full((60, 200, 3), 255, dtype=np.uint8))\n"

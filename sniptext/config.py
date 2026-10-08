@@ -49,6 +49,14 @@ class Config:
 
     def _validate(self) -> None:
         """Validate config values, resetting invalid ones to defaults with a warning."""
+        codes = self.ocr_language.split("+") if isinstance(self.ocr_language, str) else [""]
+        if not all(code.strip() and code == code.strip() for code in codes):
+            logger.warning(
+                f"Invalid ocr_language={self.ocr_language!r}; expected codes joined with '+', "
+                "such as eng+rus. Using eng."
+            )
+            self.ocr_language = "eng"
+
         valid_display = {"auto", "wayland", "x11"}
         if not isinstance(self.display_server, str) or self.display_server not in valid_display:
             logger.warning(

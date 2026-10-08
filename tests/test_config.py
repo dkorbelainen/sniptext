@@ -264,3 +264,13 @@ class TestRoutingConfig:
                     "aggressive_correction", "hotkey"):  # fmt: skip
             assert key not in rendered
         assert "routing: true" in rendered
+
+
+class TestLanguageConfig:
+    @pytest.mark.parametrize("value", ["", "   ", None, 5, "eng+", "+rus"])
+    def test_an_unusable_language_is_reset(self, value):
+        assert Config(ocr_language=value).ocr_language == "eng"
+
+    @pytest.mark.parametrize("value", ["eng", "eng+rus", "chi_sim+eng"])
+    def test_language_codes_are_kept(self, value):
+        assert Config(ocr_language=value).ocr_language == value

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 from loguru import logger
-from PIL import Image
+from PIL import Image, ImageStat
 
 from .analyzer import ImageAnalyzer
 from .config import Config
@@ -32,7 +32,24 @@ class OCREngine:
                 "Tesseract is not available. Install it, for example: "
                 "sudo pacman -S tesseract tesseract-data-eng"
             ) from e
+        self._check_languages()
         logger.info(f"OCR language: {config.ocr_language}")
+
+    def _check_languages(self) -> None:
+        """Tesseract drops a language whose data is missing and reads on without it; say so."""
+        import pytesseract
+
+        try:
+            installed = set(pytesseract.get_languages(config=""))
+        except Exception as e:
+            logger.debug(f"Could not list Tesseract languages: {e}")
+            return
+        missing = [code for code in self.config.ocr_language.split("+") if code not in installed]
+        if missing:
+            raise OCRError(
+                f"Tesseract language data missing for: {', '.join(missing)}. Install it "
+                f"(for example tesseract-data-{missing[0]}) or change ocr_language."
+            )
 
     def recognize(self, image: "np.ndarray | Image.Image") -> str:
         """Recognise the text in an image. Raises OCRError when Tesseract cannot run."""
@@ -89,12 +106,16 @@ class OCREngine:
         return (text, chosen.name) if text else (self._run_fixed(default, image)[0], default.name)
 
     def _prepare_image(self, image: "np.ndarray | Image.Image") -> Image.Image:
-        """An RGB or grayscale copy, transparency over white, no side above max_image_size."""
+        """An RGB or grayscale copy, transparency filled in, no side above max_image_size."""
         pil_image = image.copy() if isinstance(image, Image.Image) else Image.fromarray(image)
         if pil_image.mode in ("RGBA", "LA") or "transparency" in pil_image.info:
             rgba = pil_image.convert("RGBA")
-            pil_image = Image.new("RGB", rgba.size, "white")
-            pil_image.paste(rgba, mask=rgba.getchannel("A"))
+            alpha = rgba.getchannel("A")
+            # What is opaque is the text: put it on the backdrop it contrasts with.
+            opaque = ImageStat.Stat(rgba.convert("L"), mask=alpha)
+            light = bool(opaque.count[0]) and opaque.mean[0] > 127
+            pil_image = Image.new("RGB", rgba.size, "black" if light else "white")
+            pil_image.paste(rgba, mask=alpha)
         elif pil_image.mode not in ("RGB", "L"):
             pil_image = pil_image.convert("RGB")
         limit = self.config.max_image_size

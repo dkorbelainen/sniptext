@@ -21,6 +21,11 @@ class FakeRouter:
         return self.pick
 
 
+@pytest.fixture(autouse=True)
+def installed_languages(monkeypatch):
+    monkeypatch.setattr("pytesseract.get_languages", lambda config="": ["eng", "osd", "rus"])
+
+
 @pytest.fixture
 def make(monkeypatch):
     """Build an engine whose Tesseract passes return the given text per pipeline name."""
@@ -65,6 +70,16 @@ class TestPrepareImage:
         out = self.engine(monkeypatch)._prepare_image(image)
         assert out.mode == "RGB"
         assert out.getpixel((0, 0)) == (255, 255, 255) and out.getpixel((5, 5)) == (0, 0, 0)
+
+    def test_light_text_on_transparency_gets_a_dark_backdrop(self, monkeypatch):
+        image = Image.new("RGBA", (20, 10), (0, 0, 0, 0))
+        image.putpixel((5, 5), (255, 255, 255, 255))
+        out = self.engine(monkeypatch)._prepare_image(image)
+        assert out.getpixel((0, 0)) == (0, 0, 0) and out.getpixel((5, 5)) == (255, 255, 255)
+
+    def test_a_fully_transparent_image_becomes_white(self, monkeypatch):
+        out = self.engine(monkeypatch)._prepare_image(Image.new("RGBA", (20, 10), (9, 9, 9, 0)))
+        assert out.getpixel((0, 0)) == (255, 255, 255)
 
     def test_palette_images_keep_their_colours(self, monkeypatch):
         image = Image.new("RGB", (20, 10), (200, 30, 30)).convert("P")
@@ -169,6 +184,28 @@ class TestNotRouted:
         monkeypatch.setattr(engine._analyzer, "extract_features", lambda image: 1 / 0)
         assert engine.recognize(white()) == "a"
         assert passes == ["first"]
+
+
+class TestLanguages:
+    def engine(self, monkeypatch, language, installed):
+        monkeypatch.setattr("pytesseract.get_tesseract_version", lambda: "5.0")
+        monkeypatch.setattr("pytesseract.get_languages", installed)
+        return OCREngine(Config(ocr_language=language))
+
+    def test_a_missing_language_pack_is_reported(self, monkeypatch):
+        # Tesseract itself drops the missing language and reads garbage with the rest.
+        with pytest.raises(OCRError, match="rus, ell") as error:
+            self.engine(monkeypatch, "eng+rus+ell", lambda config="": ["eng", "osd"])
+        assert "tesseract-data-rus" in str(error.value)
+
+    def test_installed_languages_pass(self, monkeypatch):
+        self.engine(monkeypatch, "eng+rus", lambda config="": ["eng", "osd", "rus"])
+
+    def test_an_unreadable_language_list_does_not_block(self, monkeypatch):
+        def broken(config=""):
+            raise RuntimeError("no list")
+
+        self.engine(monkeypatch, "eng+rus", broken)
 
 
 class TestFailures:
