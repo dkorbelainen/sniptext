@@ -1,28 +1,28 @@
 # Benchmark
 
-Generated: 2026-10-08. Commit: `a2d4a17`. Tesseract runs with `eng+rus`.
+Generated: 2026-10-08. Commit: `c094b32`. Tesseract runs with `eng+rus`.
 
 ## Method
 
-A pipeline is a preprocessing chain (dark-theme inversion, 2x upscaling, median or Gaussian filter, or the preprocessing of version 0.4) plus a Tesseract page-segmentation mode. A router predicts the character error rate (CER) of each shipped pipeline and takes the one with the lowest predicted CER plus a time weight times its seconds. Two routers are compared: one sees only image statistics before any OCR; the cascade runs the default pipeline first and also sees its word confidences. If the chosen pipeline returns no text the default runs instead; the numbers include that.
+A pipeline is a preprocessing chain plus a Tesseract page-segmentation mode. A router predicts the character error rate (CER) of each shipped pipeline and takes the lowest predicted CER plus a time weight times the pipeline's seconds. Two routers are compared: one sees image statistics only; the cascade runs the default pipeline first and also sees its word confidences. An empty result falls back to the default pipeline.
 
-CER is the edit distance to the ground truth over its length, whitespace-normalised, case kept, clipped at 1 per image. Intervals are 95% bootstrap intervals over texts, because renders of one text are not independent. Differences are paired.
+CER is the edit distance over the ground-truth length, whitespace-normalised, clipped at 1. Intervals are 95% bootstrap intervals over texts. Differences are paired.
 
 ## Data
 
-4180 images from 900 texts: train 1800, test 600, unseen_font 300, val 600, ood 80, browser 200, confirm 600. English (2340) and Russian (1560) renders of prose (2600), code (780) and interface strings (520), from UD English-EWT, UD Russian-GSD and the CPython 3.12 standard library. Each render has a random font, a size from 11 to 30 px, one of six colour schemes and up to two degradations out of blur, noise, JPEG, rescaling and low contrast.
+4180 images from 900 texts: train 1800, test 600, unseen_font 300, val 600, ood 80, browser 200, confirm 600. English (2340) and Russian (1560) renders of prose (2600), code (780) and interface strings (520) from UD English-EWT, UD Russian-GSD and CPython 3.12. Random font, 11 to 30 px, six colour schemes, up to two degradations out of blur, noise, JPEG, rescaling and low contrast.
 
-A text belongs to exactly one of train, validation and test. The receipts, the browser pages and the fresh texts are never used for fitting or selection. Browser pages were rendered by Google Chrome 151.0.7922.173.
+Train, validation and test share no text. Receipts, browser pages and fresh texts are not used for fitting or selection. Browser: Google Chrome 151.0.7922.173.
 
 ## Shipped policy
 
-`cascade` over `light_up2_median3_psm6`, `light_gauss1_psm6`: Gradient boosting (100 trees, depth 3, learning rate 0.1), time weight 2.000. It is scored through `sniptext.router.Router` on the model file packaged with the app.
+`cascade` over `light_up2_median3_psm6`, `light_gauss1_psm6`: Gradient boosting (100 trees, depth 3, learning rate 0.1), time weight 2.000.
 
-Of the two routers the one with the lower out-of-fold CER ships: Router, cascade has 0.057 at 241 ms per image, Router, before OCR 0.061 at 186 ms.
+Out-of-fold CER: Router, cascade 0.057 at 241 ms per image, Router, before OCR 0.061 at 186 ms. The lower one ships.
 
-The rule fixed before the measurement was different: within 0.005 out-of-fold CER the faster router ships. It chose Router, before OCR, whose held-out CER is not distinguishable from the best static pipeline's (-0.012 [-0.024, +0.00004]) and, on images without added noise, higher than it (+0.006 [+0.002, +0.011]). The rule was replaced after the held-out results were seen, so the held-out numbers of the shipped router are not a clean estimate. The fresh-text slice was generated afterwards for that reason.
+The rule fixed before the measurement (within 0.005 out-of-fold CER the faster router ships) chose Router, before OCR. Its held-out CER is not distinguishable from the best static pipeline's (-0.012 [-0.024, +0.00004]) and, on images without added noise, higher than it (+0.006 [+0.002, +0.011]). The rule was replaced after the held-out results were seen, so the held-out numbers of the shipped router are not a clean estimate. The fresh texts were generated afterwards.
 
-Criteria 1 to 3 were fixed before the first measurement, criterion 4 before the fresh texts were read. Paired differences in brackets.
+Criteria, with paired differences. 1 to 3 were fixed before the first measurement, 4 before the fresh texts were read.
 
 1. Lower CER on held-out texts than the best static pipeline: **met** (-0.020 [-0.031, -0.011]).
 2. Not worse than the 0.4 router, which needs EasyOCR: **met** (-0.018 [-0.029, -0.008]).
@@ -31,11 +31,11 @@ Criteria 1 to 3 were fixed before the first measurement, criterion 4 before the 
 
 ## Results
 
-Mean CER with its interval, paired difference to the best static pipeline, mean time per image. The 0.4 router's times come from the 0.4 run, with EasyOCR on a GPU, and are not comparable with the other rows.
+CER with its interval, paired difference to the best static pipeline, mean time per image. The 0.4 router's times are from a GPU run and not comparable.
 
 ### Fresh texts
 
-Rendered like the held-out slice from texts that share no six-word run with any other slice. Generated and read after the shipped policy was fixed.
+No six-word run shared with any other slice. Generated after the shipped policy was fixed.
 
 | Policy | CER | Difference to best static | Time, ms |
 |---|---|---|---|
@@ -66,7 +66,7 @@ Shipped policy against 0.4 Tesseract (`enhance_auto`): -0.044 [-0.059, -0.030]; 
 
 ### Unseen fonts
 
-Two font families that appear in no other slice.
+Two font families used in no other slice.
 
 | Policy | CER | Difference to best static | Time, ms |
 |---|---|---|---|
@@ -83,7 +83,7 @@ Shipped policy against 0.4 Tesseract (`enhance_auto`): -0.013 [-0.028, +0.001]; 
 
 ### Browser pages
 
-Held-out texts laid out by headless Chrome as prose, code and interface elements, in light and dark themes, at device scale 1, 1.5 and 2, with no degradation.
+Held-out texts rendered by headless Chrome: light and dark themes, device scale 1, 1.5 and 2, no degradation.
 
 | Policy | CER | Difference to best static | Time, ms |
 |---|---|---|---|
@@ -99,7 +99,7 @@ Shipped policy against 0.4 Tesseract (`enhance_auto`): -0.005 [-0.011, -0.001].
 
 ### Receipts
 
-Photographed receipts (SROIE), unlike anything in the training data.
+Photographed receipts (SROIE).
 
 | Policy | CER | Difference to best static | Time, ms |
 |---|---|---|---|
@@ -116,7 +116,7 @@ Shipped policy against 0.4 Tesseract (`enhance_auto`): -0.006 [-0.015, +0.003]; 
 
 ## Added noise
 
-The degradation on which the pipelines differ most. Mean CER per group, then each router's paired difference. This split was not planned before the measurement.
+Mean CER per group, then paired differences. The split was not planned before the measurement.
 
 ### Fresh texts
 
@@ -164,13 +164,13 @@ Held-out texts.
 
 ![CER against time](img/cer_time.png)
 
-Each line traces one router as the time weight grows from 0. The cascade runs the default pipeline on every image, so its time cannot fall below that pipeline's.
+One line per router as the time weight grows from 0.
 
-Times were measured in one process on one machine with a one-minute load average between 3.7 and 5.7. Feature extraction (5.9 ms per image) is not included.
+One process, one machine, one-minute load average 3.7 to 5.7. Feature extraction (5.9 ms per image) is not included.
 
 ## Pipeline selection
 
-13 candidates; `enhance_auto` is what version 0.4 ran.
+13 candidates; `enhance_auto` is the pipeline of 0.4.
 
 | Pipeline | Steps | PSM | CER on train and validation | Time, ms |
 |---|---|---|---|---|
@@ -188,7 +188,7 @@ Times were measured in one process on one machine with a one-minute load average
 | `light_gauss1_auto` | light, gauss1 | auto | 0.238 | 154 |
 | `light_median3_auto` | light, median3 | auto | 0.254 | 158 |
 
-Selection is greedy on train and validation texts: start from the best static pipeline, add the candidate that lowers the out-of-fold CER of the routed set most, stop when the gain is below 0.003 or at four pipelines.
+Greedy on train and validation texts: start from the best static pipeline, add the candidate that lowers out-of-fold CER most, stop below a gain of 0.003 or at four pipelines.
 
 | Step | Pipeline | Out-of-fold CER of the routed set | Oracle over the set |
 |---|---|---|---|
@@ -198,7 +198,7 @@ Selection is greedy on train and validation texts: start from the best static pi
 
 ## Model selection
 
-Grouped 5-fold cross-validation over train and validation texts, ranked by the regret of the resulting policy to the oracle. The time weight is the largest one that keeps out-of-fold CER within 0.005 of the accuracy-only policy.
+Grouped 5-fold cross-validation over train and validation texts, ranked by regret to the oracle. The time weight is the largest that keeps out-of-fold CER within 0.005 of the accuracy-only policy.
 
 | Router | Best candidate | Out-of-fold CER | Regret to oracle |
 |---|---|---|---|
@@ -211,19 +211,19 @@ The shipped router has 17 inputs. Removing any one changes out-of-fold CER by at
 
 ## Removed components
 
-EasyOCR needs torch, about 2 GB installed. On the 2400 train and validation images of the 0.4 run, an oracle over the three actions of 0.4 (Tesseract, EasyOCR, their merge) reaches CER 0.061. An oracle over the pipelines shipped now reaches 0.045; adding EasyOCR to them gives 0.043.
+EasyOCR (needs torch, about 2 GB): on the 2400 train and validation images of the 0.4 run, an oracle over the three actions of 0.4 reaches CER 0.061, an oracle over the shipped pipelines 0.045, and 0.043 with EasyOCR added.
 
-The spelling corrector of 0.4, on the 600 validation images: CER 0.048 [0.036, 0.062] without it, 0.051 [0.038, 0.065] with it, paired difference +0.003 [+0.002, +0.004]; it changes the text of 19% of images. The interval does not lie below zero, so the correction was removed.
+Spelling corrector, 600 validation images: CER 0.048 [0.036, 0.062] without it, 0.051 [0.038, 0.065] with it, paired difference +0.003 [+0.002, +0.004]; it changes 19% of texts. It was removed.
 
 ## Limitations
 
-- The degradations are synthetic. Noise and heavy JPEG are rarer in real captures than here.
-- The browser pages are not captures of real applications, and no manually transcribed screenshots are included.
+- Degradations are synthetic; noise and heavy JPEG are rarer in real captures.
+- No captures of real applications and no manually transcribed screenshots.
 - English and Russian only.
 - Times are from one machine.
-- Train and validation images are at most 0.323 megapixels and the pipeline costs are means over them. The app routes images up to 2 megapixels, where upscaling costs more; the receipts table shows times at that size.
-- The candidate pool followed something seen on the held-out slice of the 0.4 run (the second engine helped mostly on noisy images), so that slice is not blind to the design of the pool.
-- Images above 2 megapixels are not routed and run `enhance_auto`. That rule was set after the timings of the receipts above the limit were seen. 11 images here are that large and are scored that way.
+- Train and validation images are at most 0.323 megapixels and pipeline costs are means over them. Images up to 2 megapixels are routed, where upscaling costs more (see the receipt times).
+- The candidate pool followed a finding on the held-out slice of the 0.4 run (the second engine helped mostly on noisy images), so that slice is not blind to the pool.
+- Images above 2 megapixels run `enhance_auto` unrouted; the rule was set after the receipt timings were seen. 11 images here are that large.
 
 ## Reproduce
 
@@ -235,6 +235,6 @@ venv/bin/python benchmarks/train_router.py       # selection, evaluation, packag
 venv/bin/python benchmarks/report.py             # this file and its figure
 ```
 
-The 0.4 rows come from `benchmarks/legacy_v04.json`, frozen from version 0.4.0.
+0.4 rows: `benchmarks/legacy_v04.json`, frozen from 0.4.0.
 
-The corrector numbers come from `benchmarks/corrector_eval.json`, measured before the corrector was removed.
+Corrector numbers: `benchmarks/corrector_eval.json`, measured before its removal.
