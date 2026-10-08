@@ -366,3 +366,13 @@ def test_dataset_card_states_the_largest_development_image(tmp_path):
     ev = tr.run(paths["results"], paths["timing"], paths["legacy"], paths["model"], paths["eval"],
                 candidates=FAST)  # fmt: skip
     assert ev["dataset"]["dev_max_pixels"] == 1000
+
+
+def test_the_browser_criterion_is_not_judged_without_the_slice(tmp_path):
+    p = fake_run(tmp_path)
+    payload = json.loads(p["results"].read_text())
+    payload["rows"] = [row for row in payload["rows"] if row["split"] != "browser"]
+    p["results"].write_text(json.dumps(payload))
+    ev = tr.run(p["results"], p["timing"], p["legacy"], p["model"], p["eval"], candidates=FAST)
+    assert ev["criteria"]["browser_delta"] is None
+    assert ev["criteria"]["browser_not_worse"] is None

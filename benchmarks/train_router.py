@@ -443,7 +443,7 @@ def run(results, timing, legacy_path, model_path, eval_path, candidates=CANDIDAT
     criteria = {
         "router_beats_best_static": bool(test_delta is not None and test_delta[2] < 0),
         "not_worse_than_v04": bool("test" in v04_delta and v04_delta["test"][1] <= 0),
-        "browser_not_worse": bool(browser_delta is None or browser_delta[1] <= 0),
+        "browser_not_worse": None if browser_delta is None else bool(browser_delta[1] <= 0),
         "confirm_beats_best_static": bool(confirm_delta is not None and confirm_delta[2] < 0),
         "test_delta": test_delta,
         "v04_delta": v04_delta.get("test"),
