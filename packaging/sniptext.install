@@ -45,6 +45,8 @@ Changes in 0.5.0:
 - EasyOCR is no longer used. python-pytorch and python-easyocr can be removed
   if nothing else needs them.
 - Old keys in ~/.config/sniptext/config.yaml are ignored with a warning.
+- Remove old autostart entries (sniptext.service, `exec-once = sniptext`):
+  a bare `sniptext` now opens the region selector.
 
 MSG
     fi

@@ -2,33 +2,21 @@
 
 [![CI](https://github.com/dkorbelainen/sniptext/actions/workflows/ci.yml/badge.svg)](https://github.com/dkorbelainen/sniptext/actions/workflows/ci.yml)
 
-Select a region of the screen; Tesseract reads it and the text lands in the clipboard. A small model decides per capture whether a second preprocessing is worth running.
+Select a screen region; Tesseract reads it and the text lands in the clipboard.
 
-**Workflow:** key → select area → text in clipboard
-
-## Installation
-
-Arch Linux:
+## Install
 
 ```bash
-yay -S sniptext
+yay -S sniptext        # Arch Linux
+pip install .          # from source
 ```
 
-From source:
-
-```bash
-pip install .
-```
-
-Runtime dependencies: Tesseract, Pillow, numpy, PyYAML, loguru, pytesseract. For capture and clipboard: `slurp`, `grim` and `wl-clipboard` on Wayland, `maim` and `xclip` on X11.
-
-Then bind a key to `sniptext --capture-now` in your compositor. See [KEYBINDINGS.md](KEYBINDINGS.md).
+Needs Tesseract, plus `slurp`, `grim` and `wl-clipboard` on Wayland or `maim` and `xclip` on X11. Bind a key to `sniptext --capture-now`: [KEYBINDINGS.md](KEYBINDINGS.md).
 
 ## Usage
 
 ```bash
 sniptext                      # select a region, recognise it, copy the text
-sniptext --capture-now        # the same; the form to bind to a key
 sniptext --file IMAGE         # recognise an image file instead
 sniptext --output FILE        # also write the text to FILE
 sniptext --history [N]        # print the last N captured texts (default 10)
@@ -37,17 +25,15 @@ sniptext --list-profiles
 sniptext --print-config
 ```
 
-`-c FILE` selects another config file, `-v` enables debug logging. A capture shows a desktop notification with the start of the text, or the reason when Tesseract could not run (for example a language pack that is not installed).
+`-c FILE` selects another config file, `-v` enables debug logging.
 
 Exit codes: 0 on success or when no text was found, 1 when the capture, the OCR or the clipboard failed, 2 for an unreadable image file or bad arguments.
 
-## How the pipeline is chosen
+## How it works
 
-One engine, several ways to prepare the image for it. A pipeline is a preprocessing chain (inversion of dark themes, 2x upscaling, median or Gaussian filtering) plus a Tesseract page-segmentation mode. Thirteen candidates were run over the corpus; two were selected greedily and ship.
+Every capture is read with a default preprocessing pipeline. From 12 image statistics and the word confidences of that pass, a gradient-boosting model predicts the character error rate (CER) of a second pipeline, which runs only when it is expected to pay for its time. The two pipelines were selected from 13 candidates. The model is fitted with scikit-learn and ships as a JSON file evaluated with numpy.
 
-Every capture is read with the default pipeline first. From 12 image statistics and the word confidences of that pass, a gradient-boosting regressor per pipeline predicts the character error rate (CER), and the second pipeline runs only when its predicted CER, plus a time penalty, is lower. The model is fitted with scikit-learn offline and exported to a JSON file that the app evaluates with numpy.
-
-Mean CER on 600 images rendered from texts that no part of the work had seen, with 95% bootstrap intervals over texts:
+Mean CER on 600 images of texts not seen during development, with 95% bootstrap intervals over texts:
 
 | | CER | Time per image |
 |---|---|---|
@@ -55,36 +41,18 @@ Mean CER on 600 images rendered from texts that no part of the work had seen, wi
 | Best single pipeline | 0.077 [0.062, 0.093] | 203 ms |
 | Tesseract as version 0.4 ran it | 0.115 [0.095, 0.137] | 172 ms |
 
-Paired differences: -0.007 [-0.013, -0.002] against the best single pipeline, -0.045 [-0.062, -0.030] against version 0.4's Tesseract.
+The gain is on noisy images: 0.163 against 0.195 and 0.371. Without noise the three are level: 0.046, 0.046 and 0.048.
 
-The gain is on images with added noise: 0.163 against 0.195 for the best single pipeline and 0.371 for 0.4. Without added noise the three are close: 0.046, 0.046 and 0.048. On pages rendered by a browser the router and the best single pipeline both reach 0.007, against 0.012 for 0.4.
-
-On the original held-out slice the router reaches 0.058 [0.046, 0.071]. That number is not a clean estimate: the choice between two router variants was made after it was seen, which is why the fresh slice exists. The report tells that story in full.
-
-Data, method, every slice and the limitations: [docs/benchmark.md](docs/benchmark.md).
-
-## Language support
-
-```bash
-sudo pacman -S tesseract-data-rus     # Russian
-sudo pacman -S tesseract-data-ell     # Greek
-sudo pacman -S tesseract-data-equ     # math symbols
-```
-
-```yaml
-ocr_language: eng+rus+equ
-```
-
-Full guide: [LANGUAGES.md](LANGUAGES.md). The router was fitted and measured with `eng+rus`.
+Method, every slice and the limitations: [docs/benchmark.md](docs/benchmark.md).
 
 ## Configuration
 
-`~/.config/sniptext/config.yaml` is created on first run with a comment per key. `sniptext --print-config` prints the current values.
+`~/.config/sniptext/config.yaml` is created on first run.
 
 | Key | Default | Meaning |
 |---|---|---|
 | `ocr_language` | `eng` | Tesseract language codes, joined with `+` |
-| `routing` | `true` | Choose the pipeline per image; `false` always runs the default one |
+| `routing` | `true` | Choose the pipeline per image; `false` runs only the default one |
 | `router_time_weight` | blank | CER traded per second; blank uses the benchmarked value, `0` ignores time |
 | `max_image_size` | `4096` | Larger images are reduced to this side before OCR |
 | `notification_enabled` | `true` | Desktop notification after a capture |
@@ -92,15 +60,16 @@ Full guide: [LANGUAGES.md](LANGUAGES.md). The router was fitted and measured wit
 | `history_size` | `50` | Number of texts kept |
 | `display_server` | `auto` | `auto`, `wayland` or `x11` |
 
-Images above 2 megapixels are not routed: they run the pipeline of version 0.4, which upscales only small images.
+Images above 2 megapixels always run the preprocessing of version 0.4.
+
+Other languages: [LANGUAGES.md](LANGUAGES.md). The router was fitted and measured with `eng+rus`.
 
 ## Changes from 0.4
 
-- EasyOCR and the merge of two engines are gone, and with them torch (about 2 GB). The benchmark report shows what that costs.
-- The spelling corrector is gone: on validation texts it raised CER.
-- The built-in hotkey listener, `sniptext serve`, `--client` and `--interactive` are gone. Bind `sniptext --capture-now` to a key in the compositor.
-- Config keys of removed features (`ocr_engine`, `use_gpu`, `hotkey`, `adaptive_ensemble`, `enable_text_correction` and others) are ignored with a warning.
-- The process now exits right after copying; before, it stayed until the clipboard changed.
+- EasyOCR and torch (about 2 GB) are gone, and so is the spelling corrector, which raised CER.
+- The hotkey listener, `sniptext serve`, `--client` and `--interactive` are gone. Bind `sniptext --capture-now` to a key and remove old autostart entries (`sniptext.service`, `exec-once = sniptext`).
+- Config keys of removed features are ignored with a warning.
+- The process exits right after copying.
 
 ## Development
 
@@ -109,5 +78,3 @@ pip install -e ".[dev]"
 pytest
 ruff check . && ruff format --check .
 ```
-
-The benchmark is reproduced with the five commands at the end of [docs/benchmark.md](docs/benchmark.md).

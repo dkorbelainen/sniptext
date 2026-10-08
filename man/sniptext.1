@@ -19,8 +19,8 @@ Every image is first read with the default preprocessing pipeline.  From
 image statistics and the confidences of that pass a small model predicts
 the character error rate of each shipped pipeline, and a second pipeline
 runs only when it is predicted to do better for its time.  If it returns
-no text, the first result is kept.  Images above 2 megapixels are not
-routed.
+no text, the first result is kept.  Images above 2 megapixels always run
+the preprocessing of version 0.4.
 .PP
 After a screen capture a desktop notification shows the start of the text,
 or the reason when Tesseract could not run.
@@ -45,8 +45,8 @@ Cannot be combined with \fB\-\-file\fR.
 .TP
 .BR \-\-file " \fIIMAGE\fR"
 Run OCR on an existing image file instead of capturing the screen.
-Supports any format that Pillow can open.  Transparent areas are treated
-as white.
+Supports any format that Pillow can open.  Transparent areas are filled
+with white, or with black under light text.
 .TP
 .B \-\-print\-config
 Print the current configuration in YAML format with comments and exit.
