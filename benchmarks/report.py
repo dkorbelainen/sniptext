@@ -1,7 +1,7 @@
-"""Write docs/benchmark.md and its figures from the benchmark outputs.
+"""Write docs/benchmark.md and its figure from the benchmark outputs.
 
-Every number in the report comes from router_eval.json or from the calibration
-analyses run here; nothing is typed in by hand.
+Every number in the report comes from router_eval.json or corrector_eval.json;
+nothing is typed in by hand.
 """
 
 from __future__ import annotations
@@ -14,26 +14,40 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from benchmarks.calib_merge import evaluate as calib_merge_eval
-from benchmarks.calibration import calibrate, reliability
+from sniptext.pipelines import LARGE_IMAGE, V04
 
 _HERE = Path(__file__).resolve().parent
 _EVAL = _HERE / "router_eval.json"
-_WORD_CONF = _HERE / "word_conf.json"
+_CORRECTOR = _HERE / "corrector_eval.json"
+_ENVIRONMENT = _HERE / "data" / "browser" / "environment.json"
 _REPO_ROOT = _HERE.parent
 _REPORT = _REPO_ROOT / "docs" / "benchmark.md"
 _IMG = _REPO_ROOT / "docs" / "img"
 
-_LABELS = {
-    "always_tesseract": "Always Tesseract",
-    "always_easyocr": "Always EasyOCR",
-    "always_merge": "Always merge",
-    "legacy_rules": "Previous selector (rules)",
-    "router_pre_ocr": "Router, image features",
+_FIXED = {
+    "router_pre_ocr": "Router, before OCR",
     "router_cascade": "Router, cascade",
-    "oracle": "Oracle (lower bound)",
+    "router_v04": "0.4 router (needs EasyOCR)",
+    "oracle": "Oracle over the shipped pipelines",
+    "oracle_pool": "Oracle over the whole pool",
 }
-_ACTION_LABELS = {"tesseract": "Tesseract", "easyocr": "EasyOCR", "merge": "merge"}
+_SLICES = (
+    ("test", "Result on held-out texts", ""),
+    ("unseen_font", "Unseen fonts", "Two font families that appear in no other slice.\n"),
+    (
+        "ood",
+        "Out-of-domain receipts",
+        "Photographed receipts are unlike anything in the training data. This slice shows what "
+        "the choice does outside its domain.\n",
+    ),
+    (
+        "browser",
+        "Pages rendered by a browser",
+        "Held-out texts laid out by headless Chrome as prose, highlighted code and interface "
+        "elements, in light and dark themes, at device scale 1, 1.5 and 2, with no degradation "
+        "added. Nothing was fitted or selected on this slice.\n",
+    ),
+)
 
 
 def _git_commit() -> str:
@@ -66,21 +80,68 @@ def _spec(spec: dict) -> str:
     )
 
 
-def verdict(summary: dict, best_static: str) -> str:
+def _shipped_label(ev: dict) -> str:
+    if ev["shipped"] == "static":
+        return f"always_{ev['best_static']}"
+    return f"router_{ev['shipped']}"
+
+
+def _label(policy: str, ev: dict) -> str:
+    if policy in _FIXED:
+        return _FIXED[policy]
+    name = policy[len("always_") :]
+    notes = [
+        note
+        for note, applies in (
+            ("0.4 Tesseract", name == V04.name),
+            ("best static", name == ev["best_static"]),
+        )
+        if applies
+    ]
+    return f"Always `{name}`" + (f" ({', '.join(notes)})" if notes else "")
+
+
+def verdict(summary: dict, ev: dict) -> str:
     """One sentence that says only what the paired interval supports."""
+    name = _label(summary["policy"], ev)
+    if "delta" not in summary:
+        return (
+            f"No router ships. {name}: CER {_ci(summary['cer'])}; it is the best static "
+            "pipeline, so there is nothing to compare it with."
+        )
     mean, low, high = summary["delta"]
-    name = _LABELS[summary["policy"]]
-    static = _ACTION_LABELS[best_static]
+    static = f"always running `{ev['best_static']}`"
     if high < 0:
-        relation = f"lower than always running {static} by {-mean:.3f}"
+        relation = f"lower than {static} by {-mean:.3f}"
     elif low > 0:
-        relation = f"higher than always running {static} by {mean:.3f}"
+        relation = f"higher than {static} by {mean:.3f}"
     else:
-        relation = f"not distinguishable from always running {static}"
+        relation = f"not distinguishable from {static}"
     return (
         f"{name}: CER {_ci(summary['cer'])}, {relation} "
         f"(paired difference {_signed(summary['delta'])}, 95% interval over texts)."
     )
+
+
+def _slice_table(summaries: list, ev: dict) -> str:
+    lines = [
+        "| Policy | CER, clipped at 1 | CER, raw | Median | Difference to best static "
+        "| Pipelines taken | Time, ms |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for s in summaries:
+        label = _label(s["policy"], ev)
+        if s["policy"] == _shipped_label(ev):
+            label = f"**{label} (shipped)**"
+        share = ", ".join(
+            f"{value * 100:.0f}% `{name}`" for name, value in s.get("share", {}).items() if value
+        )
+        delta = _signed(s["delta"]) if "delta" in s else ""
+        lines.append(
+            f"| {label} | {_ci(s['cer'])} | {s['cer_unclipped']:.3f} | {s['cer_median']:.3f} "
+            f"| {delta} | {share} | {s['time'] * 1000:.0f} |"
+        )
+    return "\n".join(lines) + "\n"
 
 
 def _slice_section(ev: dict, key: str) -> list:
@@ -88,60 +149,74 @@ def _slice_section(ev: dict, key: str) -> list:
     if key not in ev["slices"]:
         return []
     summaries = ev["slices"][key]
-    router = next(s for s in summaries if s["policy"] == f"router_{ev['shipped']}")
-    return [verdict(router, ev["best_static"]) + "\n", _slice_table(summaries, ev["shipped"])]
-
-
-def _shipping_rule(ev: dict) -> str:
-    shipped = ev["shipped"]
-    other = "cascade" if shipped == "pre_ocr" else "pre_ocr"
-    mine, theirs = ev["policies"][shipped]["oof"], ev["policies"][other]["oof"]
-    return (
-        "Of the two routers the one with the lower out-of-fold CER ships, or the faster one when "
-        f"they are within 0.005: {_LABELS['router_' + shipped]} has {mine['cer']:.3f} at "
-        f"{mine['time'] * 1000:.0f} ms per image, {_LABELS['router_' + other]} "
-        f"{theirs['cer']:.3f} at {theirs['time'] * 1000:.0f} ms."
-    )
-
-
-def _curve_span(ev: dict, policy: str) -> str:
-    curve = ev["policies"][policy]["curve"]
-    times = [point[2] * 1000 for point in curve]
-    cers = [point[1] for point in curve]
-    return (
-        f"{_LABELS['router_' + policy]} spans {min(times):.0f} to {max(times):.0f} ms and CER "
-        f"{min(cers):.3f} to {max(cers):.3f}"
-    )
-
-
-def _slice_table(summaries: list, shipped: str) -> str:
-    lines = [
-        "| Policy | CER, clipped at 1 | CER, raw | Median | Regret to oracle "
-        "| Difference to best static | Tesseract / EasyOCR / merge | Time, ms |",
-        "|---|---|---|---|---|---|---|---|",
-    ]
-    for s in summaries:
-        label = _LABELS[s["policy"]]
-        if s["policy"] == f"router_{shipped}":
-            label = f"**{label} (shipped)**"
-        share = " / ".join(f"{s['share'][a] * 100:.0f}%" for a in ("tesseract", "easyocr", "merge"))
-        delta = _signed(s["delta"]) if "delta" in s else ""
-        lines.append(
-            f"| {label} | {_ci(s['cer'])} | {s['cer_unclipped']:.3f} | {s['cer_median']:.3f} "
-            f"| {_ci(s['regret'])} | {delta} | {share} | {s['time'] * 1000:.0f} |"
+    shipped = next(s for s in summaries if s["policy"] == _shipped_label(ev))
+    out = [verdict(shipped, ev) + "\n", _slice_table(summaries, ev)]
+    if key in ev["per_slice_delta_v04_tesseract"]:
+        out.append(
+            f"Against Tesseract as version 0.4 ran it (`{V04.name}`) the paired difference is "
+            f"{_signed(ev['per_slice_delta_v04_tesseract'][key])}.\n"
         )
-    return "\n".join(lines) + "\n"
+    if key in ev["per_slice_delta_v04"]:
+        out.append(
+            "Against the 0.4 router the paired difference is "
+            f"{_signed(ev['per_slice_delta_v04'][key])}. Its times come from the 0.4 run, with "
+            "EasyOCR on a GPU, and are not comparable with the other rows.\n"
+        )
+    return out
 
 
-def _breakdown_table(groups: dict) -> str:
+def _criteria(ev: dict) -> str:
+    c = ev["criteria"]
+
+    def line(text: str, met: bool, delta) -> str:
+        numbers = f" (paired difference {_signed(delta)})" if delta else ""
+        return f"{text}: {'**met**' if met else '**not met**'}{numbers}."
+
+    return "\n".join(
+        [
+            line("1. The shipped router has significantly lower CER on held-out texts than the "
+                 "best static pipeline", c["router_beats_best_static"], c["test_delta"]),
+            line("2. It is not significantly worse than the 0.4 router, which needs EasyOCR",
+                 c["not_worse_than_v04"], c["v04_delta"]),
+            line("3. On browser pages it is not significantly worse than the best static "
+                 "pipeline", c["browser_not_worse"], c["browser_delta"]),
+        ]
+    ) + "\n"  # fmt: skip
+
+
+def _group_table(groups: dict, ev: dict) -> str:
     policies = [k for k in next(iter(groups.values())) if k != "n"]
     lines = [
-        "| Group | n | " + " | ".join(_LABELS[p] for p in policies) + " |",
+        "| Group | n | " + " | ".join(_label(p, ev) for p in policies) + " |",
         "|---|---|" + "---|" * len(policies),
     ]
     for group, values in groups.items():
         cells = " | ".join(f"{values[p]:.3f}" for p in policies)
         lines.append(f"| {group} | {values['n']} | {cells} |")
+    return "\n".join(lines) + "\n"
+
+
+def _pool_table(ev: dict) -> str:
+    lines = [
+        "| Pipeline | Steps | PSM | CER on train and validation | Time, ms |",
+        "|---|---|---|---|---|",
+    ]
+    for pipeline in sorted(ev["pool"], key=lambda p: ev["pool_dev_cer"][p["name"]]):
+        name = pipeline["name"]
+        mark = " (selected)" if name in ev["actions"] else ""
+        lines.append(
+            f"| `{name}`{mark} | {', '.join(pipeline['steps'])} | {pipeline['psm']} "
+            f"| {ev['pool_dev_cer'][name]:.3f} | {ev['pool_seconds'][name] * 1000:.0f} |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _steps_table(ev: dict) -> str:
+    lines = ["| Step | Pipeline | Out-of-fold CER of the routed set | Oracle over the set |",
+             "|---|---|---|---|"]  # fmt: skip
+    for number, step in enumerate(ev["action_selection"], 1):
+        name = f"`{step['added']}`" if step["added"] else f"`{step['rejected']}` (rejected)"
+        lines.append(f"| {number} | {name} | {step['oof_cer']:.3f} | {step['oracle']:.3f} |")
     return "\n".join(lines) + "\n"
 
 
@@ -168,6 +243,8 @@ def _feature_table(policy: dict) -> str:
 
 # Chart tokens: a categorical pair (blue, orange) checked for colour-vision separation
 # and contrast on this light surface; text uses ink tokens, never a series colour.
+
+
 _SURFACE = "#fcfcfb"
 _INK = "#0b0b0b"
 _INK_SECONDARY = "#52514e"
@@ -206,9 +283,8 @@ def _finish(plt, fig, ax, path: Path, xlabel: str, ylabel: str) -> None:
 def _plot_curve(ev: dict, path: Path) -> None:
     """Mean test CER against mean time per image, one line per policy over the time weight."""
     plt, fig, ax = _new_axes((7, 4.2))
-    routers = (("pre_ocr", "Router, image features"), ("cascade", "Router, cascade"))
-    for (policy, label), color in zip(routers, _SERIES):
-        curve = sorted(ev["policies"][policy]["curve"], key=lambda point: point[2])
+    for (policy, values), color in zip(ev["policies"].items(), _SERIES):
+        curve = sorted(values["curve"], key=lambda point: point[2])
         ax.plot(
             [p[2] * 1000 for p in curve],
             [p[1] for p in curve],
@@ -220,78 +296,48 @@ def _plot_curve(ev: dict, path: Path) -> None:
             markeredgewidth=1.5,
             solid_capstyle="round",
             solid_joinstyle="round",
-            label=label,
+            label=_FIXED[f"router_{policy}"],
         )
     for summary in ev["slices"]["test"]:
-        if summary["policy"].startswith("always_") or summary["policy"] == "oracle":
-            point = (summary["time"] * 1000, summary["cer"][0])
-            ax.plot(
-                *point,
-                linestyle="none",
-                marker="D",
-                markersize=6,
-                color=_INK_SECONDARY,
-                markeredgecolor=_SURFACE,
-                markeredgewidth=1.5,
-            )
-            # The oracle sits under the router curves; its label goes below the marker.
-            below = summary["policy"] == "oracle"
-            ax.annotate(
-                _LABELS[summary["policy"]],
-                point,
-                textcoords="offset points",
-                xytext=(6, -6 if below else 6),
-                va="top" if below else "baseline",
-                fontsize=8,
-                color=_INK,
-            )
+        policy = summary["policy"]
+        if not (policy.startswith("always_") or policy == "oracle"):
+            continue
+        point = (summary["time"] * 1000, summary["cer"][0])
+        ax.plot(*point, linestyle="none", marker="D", markersize=6, color=_INK_SECONDARY,
+                markeredgecolor=_SURFACE, markeredgewidth=1.5)  # fmt: skip
+        # The oracle sits under the router curves; its label goes below the marker.
+        below = policy == "oracle"
+        label = "Oracle" if below else policy[len("always_") :]
+        ax.annotate(label, point, textcoords="offset points", xytext=(6, -6 if below else 6),
+                    va="top" if below else "baseline", fontsize=8, color=_INK)  # fmt: skip
     ax.set_ylim(bottom=0)
-    _finish(
-        plt, fig, ax, path, "Mean time per image, ms (EasyOCR on GPU)", "Mean CER on held-out texts"
-    )
+    _finish(plt, fig, ax, path, "Mean time per image, ms", "Mean CER on held-out texts")
 
 
-def _plot_reliability(bins: list, path: Path) -> None:
-    """Word accuracy against stated confidence, pooled over both engines."""
-    plt, fig, ax = _new_axes((4.6, 4.2))
-    ax.plot([0, 1], [0, 1], color=_INK_SECONDARY, linewidth=1, label="Perfect calibration")
-    ax.plot(
-        [b["conf"] for b in bins],
-        [b["accuracy"] for b in bins],
-        color=_SERIES[0],
-        linewidth=2,
-        marker="o",
-        markersize=6,
-        markeredgecolor=_SURFACE,
-        markeredgewidth=1.5,
-        label="Engines",
-    )
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    _finish(plt, fig, ax, path, "Stated word confidence", "Share of words correct")
-
-
-def render(ev: dict, calib: dict, merge: dict, commit: str, generated: str) -> str:
+def render(ev: dict, corrector: dict, environment: dict | None, commit: str, generated: str) -> str:
     card = ev["dataset"]
-    shipped = ev["shipped"]
-    ship = ev["policies"][shipped]
-    test = {s["policy"]: s for s in ev["slices"]["test"]}
-    weak = ev["weak_labels"]["synthetic"]
+    routed = ev["shipped"] != "static"
     splits = ", ".join(f"{name} {count}" for name, count in card["by_split"].items())
+    actions = ", ".join(f"`{name}`" for name in ev["actions"])
+    load_start, load_end = (f"{values[0]:.1f}" for values in ev["loadavg"])
 
     out = [
-        "# OCR engine router benchmark\n",
-        f"Generated: {generated}. Commit: `{commit}`. Engines run with `{card['language']}`.\n",
+        "# Tesseract pipeline router benchmark\n",
+        f"Generated: {generated}. Commit: `{commit}`. Tesseract runs with `{card['language']}`.\n",
         "## Task\n",
-        "For each screenshot SnipText picks one of three actions: Tesseract, EasyOCR, or both "
-        "merged by word confidence. The router predicts the character error rate (CER) of each "
-        "action and takes the one minimising predicted CER plus a time weight times the action's "
-        "seconds. Two routers are compared: one that sees only image statistics before any OCR, "
-        "and a cascade that runs Tesseract first and also sees its word confidences.\n",
+        "SnipText reads every capture with Tesseract. What varies is the pipeline: how the image "
+        "is prepared (inversion of dark themes, upscaling, median or Gaussian filtering, or the "
+        "preprocessing of version 0.4) and which page-segmentation mode Tesseract gets. For each "
+        "image the router predicts the character error rate (CER) of each shipped pipeline and "
+        "takes the one minimising predicted CER plus a time weight times the pipeline's seconds. "
+        "Two routers are compared: one that sees only image statistics before any OCR, and a "
+        "cascade that runs the default pipeline first and also sees its word confidences.\n",
         "CER is the edit distance to the ground truth over its length, whitespace-normalised, "
         "case kept. Averages use CER clipped at 1 so that one garbage output does not dominate; "
         "the raw mean is shown next to it. Intervals are 95% bootstrap intervals that resample "
         "texts, not images, because renders of one text are not independent.\n",
+        "If the chosen pipeline returns no text the default pipeline runs instead; the numbers "
+        "below include that rule and its time.\n",
         "## Data\n",
         f"{card['n']} images: {splits}. {card['texts']} distinct texts "
         f"({card['by_lang']['en']} English and {card['by_lang']['ru']} Russian renders; "
@@ -301,161 +347,169 @@ def render(ev: dict, calib: dict, merge: dict, commit: str, generated: str) -> s
         "several times with a random font, size from 11 to 30 px, one of six colour schemes and "
         "up to two degradations out of blur, noise, JPEG, rescaling and low contrast.\n",
         "A text belongs to exactly one of train, validation and test. Two font families appear "
-        "only in the unseen-font slice. The receipts (SROIE) are never used for fitting or "
-        "selection.\n",
-        "## Result on held-out texts\n",
-        *_slice_section(ev, "test"),
-        f"The shipped policy is `{shipped}`: {_spec(ship['spec'])}, time weight "
-        f"{ship['time_weight']:.3f}. It is scored through `sniptext.router.Router`, the class the "
-        'app uses, fitted from the table packaged with the app. "Best static" is always running '
-        f"{_ACTION_LABELS[ev['best_static']]}, chosen on train and validation.\n",
-        _shipping_rule(ev) + "\n",
-        "## Unseen fonts\n",
-        *_slice_section(ev, "unseen_font"),
-        "## Out-of-domain receipts\n",
-        "Photographed receipts are unlike anything in the training data. This slice shows what "
-        "the router does outside its domain.\n",
-        *_slice_section(ev, "ood"),
-        "## Accuracy against time\n",
-        "![CER against time](img/cer_time.png)\n",
-        "Each line traces one router as the time weight grows from 0. Times are measured on this "
-        "machine with EasyOCR on a GPU.\n",
-        f"{_curve_span(ev, 'pre_ocr')}; {_curve_span(ev, 'cascade')}. The cascade runs Tesseract "
-        "on every image, so its time cannot fall below Tesseract's.\n",
+        "only in the unseen-font slice. The receipts (SROIE) and the browser pages are never "
+        "used for fitting or selection.\n",
+    ]
+    if environment:
+        fonts = "; ".join(f"{family}: {match}" for family, match in environment["fonts"].items())
+        out.append(f"The browser pages were rendered by {environment['chrome']}. Fonts: {fonts}.\n")
+
+    for key, title, intro in _SLICES:
+        section = _slice_section(ev, key)
+        if not section:
+            continue
+        out.append(f"## {title}\n")
+        if intro:
+            out.append(intro)
+        out += section
+        if key == "test":
+            if routed:
+                ship = ev["policies"][ev["shipped"]]
+                other = "cascade" if ev["shipped"] == "pre_ocr" else "pre_ocr"
+                mine, theirs = ship["oof"], ev["policies"][other]["oof"]
+                out += [
+                    f"The shipped policy is `{ev['shipped']}` over {actions}: "
+                    f"{_spec(ship['spec'])}, time weight {ship['time_weight']:.3f}. It is scored "
+                    "through `sniptext.router.Router`, the class the app uses, reading the model "
+                    "file packaged with the app.\n",
+                    "Of the two routers the one with the lower out-of-fold CER ships, or the "
+                    f"faster one when they are within 0.005: {_FIXED['router_' + ev['shipped']]} "
+                    f"has {mine['cer']:.3f} at {mine['time'] * 1000:.0f} ms per image, "
+                    f"{_FIXED['router_' + other]} {theirs['cer']:.3f} at "
+                    f"{theirs['time'] * 1000:.0f} ms.\n",
+                ]
+            out += ["The criteria fixed before the measurement:\n", _criteria(ev)]
+
+    out += [
+        "## Clean and degraded images\n",
+        "Mean clipped CER on held-out texts, split by whether a degradation was applied. The "
+        "router is credited only where it changes something.\n",
+        _group_table(ev["clean_vs_degraded"], ev),
     ]
 
-    if ev["cpu"] is None:
-        out.append("CPU timing was not measured in this run.\n")
-    else:
-        cpu = ev["cpu"]
-        lines = ["| Policy | CER | Time, ms | Time weight |", "|---|---|---|---|"]
-        for action, values in cpu["always"].items():
-            lines.append(
-                f"| Always {_ACTION_LABELS[action]} | {values['cer']:.3f} "
-                f"| {values['time'] * 1000:.0f} | |"
-            )
-        as_shipped = cpu["shipped"]
-        lines.append(
-            f"| {_LABELS['router_' + shipped]}, as shipped | {as_shipped['cer']:.3f} "
-            f"| {as_shipped['time'] * 1000:.0f} | {as_shipped['time_weight']:.3f} |"
-        )
-        for policy, values in cpu["policies"].items():
-            lines.append(
-                f"| {_LABELS['router_' + policy]}, weight re-chosen | {values['cer']:.3f} "
-                f"| {values['time'] * 1000:.0f} | {values['time_weight']:.3f} |"
+    if routed:
+        spans = []
+        for policy, values in ev["policies"].items():
+            times = [point[2] * 1000 for point in values["curve"]]
+            cers = [point[1] for point in values["curve"]]
+            spans.append(
+                f"{_FIXED['router_' + policy]} spans {min(times):.0f} to {max(times):.0f} ms and "
+                f"CER {min(cers):.3f} to {max(cers):.3f}"
             )
         out += [
-            f"On a CPU EasyOCR is {cpu['ratio']:.1f} times slower (measured on a sample of "
-            "images). The table scales EasyOCR times by that factor, on held-out texts. The app "
-            'does not know the device, so on a CPU it runs the "as shipped" row: the same '
-            "choices as above at CPU cost. The rows with the weight re-chosen show what the same "
-            "rule would pick from CPU times; the app does not do that.\n",
-            "\n".join(lines) + "\n",
+            "## Accuracy against time\n",
+            "![CER against time](img/cer_time.png)\n",
+            "Each line traces one router as the time weight grows from 0. "
+            + "; ".join(spans)
+            + ". The cascade runs the default pipeline on every image, so its time cannot fall "
+            "below that pipeline's.\n",
         ]
+    out.append(
+        "Times were measured in one process on one machine; its load average was "
+        f"{load_start} when the timing pass started and {load_end} when it ended. Feature "
+        f"extraction takes {ev['feature_time_mean'] * 1000:.1f} ms per image and is not included "
+        "in the router's time.\n"
+    )
 
     out += [
-        "## Model selection\n",
-        "Candidates are compared by grouped 5-fold cross-validation over train and validation "
-        "texts (a text is never in both the fitting and the predicted fold), on the regret of the "
-        "resulting policy to the oracle. The default time weight is the largest one that keeps "
-        "out-of-fold CER within 0.005 of the accuracy-only policy.\n",
+        "## How the pipelines were chosen\n",
+        f"The candidate pool has {len(ev['pool'])} pipelines. `{V04.name}` is what version 0.4 "
+        "ran.\n",
+        _pool_table(ev),
+        "Selection is greedy on train and validation texts: start from the best static "
+        "pipeline, then add the candidate that lowers the out-of-fold CER of the routed set "
+        "most, and stop when the gain is below 0.003 or at four pipelines.\n",
+        _steps_table(ev),
     ]
-    for policy in ("pre_ocr", "cascade"):
-        p = ev["policies"][policy]
+
+    if routed:
         out += [
-            f"### {_LABELS['router_' + policy]}\n",
-            _selection_table(p["selection"]),
-            f"Out-of-fold at its default time weight {p['time_weight']:.3f}: CER "
-            f"{p['oof']['cer']:.3f}, {p['oof']['time'] * 1000:.0f} ms per image.\n",
+            "## Model selection\n",
+            "Candidates are compared by grouped 5-fold cross-validation over train and "
+            "validation texts (a text is never in both the fitting and the predicted fold), on "
+            "the regret of the resulting policy to the oracle. The default time weight is the "
+            "largest one that keeps out-of-fold CER within 0.005 of the accuracy-only policy.\n",
         ]
-    out += [
-        f"Tesseract is called through `image_to_data` (`{ev['tesseract_call']}` call); its text "
-        f"differs from `image_to_string` by {ev['tesseract_call_gap']:+.3f} mean CER on train and "
-        "validation.\n",
-        "## Features\n",
-        f"Inputs of the shipped router. Extraction takes {ev['feature_time_mean'] * 1000:.1f} ms "
-        "per image on average.\n",
-        _feature_table(ship),
-        "## Breakdown\n",
-        "Mean clipped CER on held-out texts.\n",
-    ]
-    for key, title in (
-        ("degradation", "By degradation"),
-        ("theme", "By colour scheme"),
-        ("lang", "By language"),
-        ("content", "By content"),
-    ):
-        out += [f"### {title}\n", _breakdown_table(ev["breakdown"][key])]
+        for policy, values in ev["policies"].items():
+            out += [
+                f"### {_FIXED['router_' + policy]}\n",
+                _selection_table(values["selection"]),
+                f"Out-of-fold at its default time weight {values['time_weight']:.3f}: CER "
+                f"{values['oof']['cer']:.3f}, {values['oof']['time'] * 1000:.0f} ms per image.\n",
+            ]
+        out += [
+            "## Features\n",
+            "Inputs of the shipped router.\n",
+            _feature_table(ev["policies"][ev["shipped"]]),
+        ]
 
-    legacy = test["legacy_rules"]
+    out += ["## Breakdown\n", "Mean clipped CER per group.\n"]
+    titles = {"degradation": "By degradation", "theme": "By colour scheme", "lang": "By language",
+              "content": "By content", "scale": "By device scale"}  # fmt: skip
+    for slice_name, heading in (("test", "Held-out texts"), ("browser", "Browser pages")):
+        for key, groups in ev["breakdown"].get(slice_name, {}).items():
+            out += [f"### {heading}: {titles[key].lower()}\n", _group_table(groups, ev)]
+
+    easy = ev["easyocr"]
     out += [
-        "## The previous selector\n",
-        "Before this router SnipText chose between Tesseract and the merge with fixed thresholds "
-        "on image statistics and a classifier fitted on hand-made feature ranges. On held-out "
-        f"texts it scores CER {_ci(legacy['cer'])} and picks the merge for "
-        f"{legacy['share']['merge'] * 100:.0f}% of images.\n",
-        "It also retrained itself on a label derived from a text-quality score of the two "
-        "outputs. Compared with the action that really had the lower CER, that label agrees on "
-        f"{weak['accuracy'] * 100:.0f}% of {weak['n']} synthetic images (Cohen's kappa "
-        f"{weak['kappa']:.2f}); it names the merge for {weak['weak_merge_share'] * 100:.0f}% of "
-        f"images while the merge is better on {weak['true_merge_share'] * 100:.0f}%. Online "
-        "retraining was removed for that reason.\n",
-        "## Confidence calibration\n",
-        "Per-word confidence against word correctness. ECE is the population-weighted gap "
-        "between confidence and accuracy over 10 bins. The calibrated column refits an isotonic "
-        "map on 70% of the images and measures on the rest.\n",
-        "| Domain | Words | Accuracy | Mean confidence | ECE raw | ECE calibrated |",
-        "|---|---|---|---|---|---|",
+        "## Why EasyOCR was removed\n",
+        "Version 0.4 chose between Tesseract, EasyOCR and a merge of both. EasyOCR needs torch, "
+        f"about 2 GB installed. On the {easy['n']} train and validation images of the 0.4 run, "
+        f"an oracle over those three actions reaches CER {easy['v04_actions']:.3f}. An oracle "
+        f"over the pipelines shipped now reaches {easy['shipped']:.3f}, and adding EasyOCR to "
+        f"them as one more choice gives {easy['with_easyocr']:.3f}.\n",
     ]
-    for domain, values in calib.items():
-        out.append(
-            f"| {domain} | {values['n']} | {values['accuracy']:.3f} | {values['mean_conf']:.3f} "
-            f"| {values['ece_raw']:.3f} | {values['ece_cal']:.3f} |"
-        )
+
+    size_note = (
+        f"{card['unrouted']} images of this corpus are that large and are scored that way."
+        if card["unrouted"]
+        else "No such image is in this corpus."
+    )
+    val = corrector["val"]
+    decision = (
+        "It stays on by default."
+        if corrector["decision"] == "keep"
+        else "The interval does not lie below zero, so the correction was removed."
+    )
     out += [
-        "\n![Reliability diagram](img/reliability.png)\n",
-        "The merge replayed on held-out texts with three ways of resolving disagreements:\n",
-        "| Domain | Images | CER, text heuristic | CER, raw confidence | CER, calibrated |",
-        "|---|---|---|---|---|",
-    ]
-    for domain, values in merge.items():
-        out.append(
-            f"| {domain} | {values['n_test']} | {values['cer_heuristic']:.3f} "
-            f"| {values['cer_rawconf']:.3f} | {values['cer_calibrated']:.3f} |"
-        )
-    out += [
-        "\n## Limitations\n",
-        "- The images are rendered, not captured. Real screenshots have anti-aliasing, mixed "
-        "fonts, icons and layouts this corpus does not cover; no manually transcribed "
-        "screenshots are included.\n"
-        "- English and Russian only, with engines configured for both. A single-language setup "
-        "may rank the engines differently.\n"
+        "## Text correction\n",
+        "Version 0.4 passed every result through a spelling corrector. Measured on the "
+        f"{val['n']} validation images for the shipped policy: CER {_ci(val['cer_raw'])} without "
+        f"it and {_ci(val['cer_corrected'])} with it, a paired difference of "
+        f"{_signed(val['delta'])}; it changes the text of {val['changed_share'] * 100:.0f}% of "
+        f"images. {decision}\n",
+        "## Limitations\n",
+        "- The degraded images are synthetic. Noise and heavy JPEG are rarer in real captures "
+        "than in this corpus; small text and dark themes are common.\n"
+        "- The browser pages are laid out by a real browser but are not captures of real "
+        "applications, and no manually transcribed screenshots are included.\n"
+        "- English and Russian only, with Tesseract configured for both.\n"
         "- Times are from one machine. The time weight trades error for seconds as measured "
         "there.\n"
-        "- Times are measured with both engines loaded. The first capture of a process that goes "
-        "to EasyOCR also pays for importing it and loading its models, which the router's cost "
-        "does not include; a one-shot run pays that on every such capture.\n"
-        "- EasyOCR reports one confidence per detected line; the word-level merge treats it as "
-        "the confidence of every word in the line.\n",
+        "- The app does not route an image larger than 2 megapixels: it runs "
+        f"`{LARGE_IMAGE.name}` on it, which upscales only small images. {size_note}\n",
         "## Reproduce\n",
         "```bash\n"
-        "venv/bin/python benchmarks/run_eval.py      # engines over the corpus, resumable\n"
-        "venv/bin/python benchmarks/train_router.py  # selection, evaluation, packaged table\n"
-        "venv/bin/python benchmarks/report.py        # this file and its figures\n"
+        "venv/bin/python benchmarks/browser.py          # browser pages (needs Chrome)\n"
+        "venv/bin/python benchmarks/run_eval.py         # every pipeline over the corpus\n"
+        "venv/bin/python benchmarks/run_eval.py --timing  # timings, on an idle machine\n"
+        "venv/bin/python benchmarks/train_router.py     # selection, evaluation, packaged model\n"
+        "venv/bin/python benchmarks/report.py           # this file and its figure\n"
         "```\n",
+        "The 0.4 rows come from `benchmarks/legacy_v04.json`, frozen from version 0.4.0.\n",
     ]
     return "\n".join(out)
 
 
-def main():
+def main() -> None:
     ev = json.loads(_EVAL.read_text())
-    calib = calibrate()
-    merge = calib_merge_eval()
+    corrector = json.loads(_CORRECTOR.read_text())
+    environment = json.loads(_ENVIRONMENT.read_text()) if _ENVIRONMENT.exists() else None
     _IMG.mkdir(parents=True, exist_ok=True)
-    _plot_curve(ev, _IMG / "cer_time.png")
-    _plot_reliability(reliability(json.loads(_WORD_CONF.read_text())), _IMG / "reliability.png")
+    if ev["shipped"] != "static":
+        _plot_curve(ev, _IMG / "cer_time.png")
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    _REPORT.write_text(render(ev, calib, merge, _git_commit(), generated))
+    _REPORT.write_text(render(ev, corrector, environment, _git_commit(), generated))
     print(f"Wrote {_REPORT}")
 
 

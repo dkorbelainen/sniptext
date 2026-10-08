@@ -328,7 +328,7 @@ def run(results, timing, legacy_path, model_path, eval_path, candidates=CANDIDAT
 
     legacy = load_legacy(legacy_path)
     shipped_label = f"always_{names[best_static]}" if shipped == "static" else f"router_{shipped}"
-    slices, per_image, v04_delta = {}, {}, {}
+    slices, per_image, v04_delta, tesseract_delta = {}, {}, {}, {}
     for name in EVAL_SLICES:
         mask = data["split"] == name
         if not mask.any():
@@ -371,6 +371,10 @@ def run(results, timing, legacy_path, model_path, eval_path, candidates=CANDIDAT
         for k in static_columns:
             add(f"always_{names[k]}", pool_cer[:, k], pool_seconds[:, k], oracle=oracle_shipped,
                 reference=None if k == best_static else reference)  # fmt: skip
+        if f"always_{V04.name}" in vectors and V04.name != names[best_static]:
+            tesseract_delta[name] = paired(
+                vectors[shipped_label], vectors[f"always_{V04.name}"], clusters
+            )
         old = legacy_arrays(legacy, data["image"][mask])
         if old["present"].all():
             add("router_v04", realized(old["cer"], old["action"]), old["seconds"],
@@ -462,6 +466,7 @@ def run(results, timing, legacy_path, model_path, eval_path, candidates=CANDIDAT
         "policies": policies,
         "slices": slices,
         "per_slice_delta_v04": v04_delta,
+        "per_slice_delta_v04_tesseract": tesseract_delta,
         "breakdown": breakdown,
         "clean_vs_degraded": clean_vs_degraded,
         "easyocr": easyocr,

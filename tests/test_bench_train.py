@@ -302,3 +302,22 @@ def test_images_above_the_size_limit_are_scored_with_the_v04_pipeline_when_poole
     data = tr.load_arrays(paths["results"], paths["timing"])
     columns = tr.delivered(data, Router(paths["model"]), data["split"] == "test")
     assert set(columns.tolist()) == {data["names"].index(V04.name)}
+
+
+def test_run_pairs_the_shipped_policy_with_the_v04_pipeline(tmp_path):
+    paths = fake_run(tmp_path)
+    for key in ("results", "timing"):
+        paths[key].write_text(paths[key].read_text().replace("p_bad", V04.name))
+    ev = tr.run(paths["results"], paths["timing"], paths["legacy"], paths["model"], paths["eval"],
+                candidates=FAST)  # fmt: skip
+    deltas = ev["per_slice_delta_v04_tesseract"]
+    assert set(deltas) == {"test", "unseen_font", "browser"}
+    # the fabricated 0.4 pipeline has CER 0.9 everywhere
+    assert all(delta[2] < -0.5 for delta in deltas.values())
+
+
+def test_run_without_the_v04_pipeline_in_the_pool_has_no_such_pairing(tmp_path):
+    paths = fake_run(tmp_path)
+    ev = tr.run(paths["results"], paths["timing"], paths["legacy"], paths["model"], paths["eval"],
+                candidates=FAST)  # fmt: skip
+    assert ev["per_slice_delta_v04_tesseract"] == {}
