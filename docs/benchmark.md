@@ -1,6 +1,6 @@
 # Tesseract pipeline router benchmark
 
-Generated: 2026-10-08. Commit: `3eccd0b`. Tesseract runs with `eng+rus`.
+Generated: 2026-10-08. Commit: `ccf9a67`. Tesseract runs with `eng+rus`.
 
 ## Task
 
@@ -303,3 +303,5 @@ venv/bin/python benchmarks/report.py           # this file and its figure
 ```
 
 The 0.4 rows come from `benchmarks/legacy_v04.json`, frozen from version 0.4.0.
+
+The text-correction numbers come from `benchmarks/corrector_eval.json`, measured before the corrector and its measurement script were removed.

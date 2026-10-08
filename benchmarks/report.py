@@ -498,6 +498,11 @@ def render(ev: dict, corrector: dict, environment: dict | None, commit: str, gen
         "```\n",
         "The 0.4 rows come from `benchmarks/legacy_v04.json`, frozen from version 0.4.0.\n",
     ]
+    if corrector["decision"] != "keep":
+        out.append(
+            "The text-correction numbers come from `benchmarks/corrector_eval.json`, measured "
+            "before the corrector and its measurement script were removed.\n"
+        )
     return "\n".join(out)
 
 

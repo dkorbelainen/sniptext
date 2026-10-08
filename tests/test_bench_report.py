@@ -54,7 +54,9 @@ def test_a_static_model_is_reported_as_such(tmp_path):
 
 def test_the_corrector_section_follows_the_decision(tmp_path):
     ev = evaluation(tmp_path)
-    assert "was removed" in report.render(ev, CORRECTOR, None, "c", "d")
+    removed = report.render(ev, CORRECTOR, None, "c", "d")
+    assert "was removed" in removed
+    assert "`benchmarks/corrector_eval.json`, measured before" in removed
     kept = {**CORRECTOR, "decision": "keep"}
     assert "stays on by default" in report.render(ev, kept, None, "c", "d")
 
