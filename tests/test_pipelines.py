@@ -2,7 +2,15 @@ import pytest
 from PIL import Image
 
 from sniptext.analyzer import ImageAnalyzer
-from sniptext.pipelines import DEFAULT, MAX_ROUTED_PIXELS, STEPS, V04, Pipeline, recognize
+from sniptext.pipelines import (
+    DEFAULT,
+    LARGE_IMAGE,
+    MAX_ROUTED_PIXELS,
+    STEPS,
+    V04,
+    Pipeline,
+    recognize,
+)
 
 
 def dark():
@@ -74,6 +82,9 @@ class TestPipeline:
         assert V04 == Pipeline("enhance_auto", ("enhance",), "auto")
         assert isinstance(DEFAULT, Pipeline)
         assert MAX_ROUTED_PIXELS == 2_000_000
+
+    def test_large_images_get_a_pipeline_that_does_not_always_upscale(self):
+        assert LARGE_IMAGE == V04 and "up2" not in LARGE_IMAGE.steps
 
 
 def tesseract_data(words):

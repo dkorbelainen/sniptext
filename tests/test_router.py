@@ -181,3 +181,17 @@ class TestRouter:
         router.choose([0.1, 0.1, 0.1])
         path.unlink()
         assert router.choose([0.95, 0.5, 0.5]) == B
+
+
+class TestShippedModel:
+    def test_it_loads_and_its_default_is_the_package_default(self):
+        model = load_model()
+        assert model.actions[0] == DEFAULT
+        assert 1 <= len(model.actions) <= 4
+        assert len({action.name for action in model.actions}) == len(model.actions)
+
+    def test_the_router_answers_for_a_plain_feature_vector(self):
+        router = Router()
+        model = load_model()
+        x = np.full(len(model.feature_names), 0.5)
+        assert router.actions[router.choose_vector(x)] in model.actions

@@ -81,7 +81,9 @@ class Pipeline:
 
 
 V04 = Pipeline("enhance_auto", ("enhance",), "auto")
-DEFAULT = V04
+DEFAULT = Pipeline("light_up2_median3_psm6", ("light", "up2", "median3"), "6")
+# Above MAX_ROUTED_PIXELS an unconditional upscale costs seconds; 0.4 upscaled small images only.
+LARGE_IMAGE = V04
 
 
 def recognize(pipeline: Pipeline, image: Image.Image, lang: str) -> tuple[str, list[list[float]]]:
