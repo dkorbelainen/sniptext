@@ -50,7 +50,8 @@ _SLICES = (
         "real_web",
         "Real web pages",
         "Text elements of real websites (VisualWebBench, element OCR), cropped to the annotated "
-        "box. Ground truth is the element's text in the page source.\n",
+        "box. Ground truth is the element's text in the page source; some boxes show less of it "
+        "(truncated or rotating elements), which raises every policy's CER alike.\n",
     ),
     ("ood", "Receipts", "Photographed receipts (SROIE).\n"),
 )
