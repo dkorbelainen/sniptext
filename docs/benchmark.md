@@ -1,6 +1,6 @@
 # Benchmark
 
-Generated: 2026-10-08. Commit: `251ef0b`. Tesseract runs with `eng+rus`.
+Generated: 2026-10-11. Commit: `5ef3cc4`. Tesseract runs with `eng+rus`.
 
 ## Method
 
@@ -10,9 +10,9 @@ CER is the edit distance over the ground-truth length, whitespace-normalised, cl
 
 ## Data
 
-4180 images from 900 texts: train 1800, test 600, unseen_font 300, val 600, ood 80, browser 200, confirm 600. English (2340) and Russian (1560) renders of prose (2600), code (780) and interface strings (520) from UD English-EWT, UD Russian-GSD and CPython 3.12. Random font, 11 to 30 px, six colour schemes, up to two degradations out of blur, noise, JPEG, rescaling and low contrast.
+4425 images from 900 texts: train 1800, test 600, unseen_font 300, val 600, ood 80, browser 200, real_web 245, confirm 600. English (2340) and Russian (1560) renders of prose (2600), code (780) and interface strings (520) from UD English-EWT, UD Russian-GSD and CPython 3.12. Random font, 11 to 30 px, six colour schemes, up to two degradations out of blur, noise, JPEG, rescaling and low contrast.
 
-Train, validation and test share no text. Receipts, browser pages and fresh texts are not used for fitting or selection. Browser: Google Chrome 151.0.7922.173.
+Train, validation and test share no text. Receipts, browser pages, real web pages and fresh texts are not used for fitting or selection. Browser: Google Chrome 151.0.7922.173.
 
 ## Shipped policy
 
@@ -22,12 +22,13 @@ Out-of-fold CER: Router, cascade 0.057 at 241 ms per image, Router, before OCR 0
 
 The rule fixed before the measurement (within 0.005 out-of-fold CER the faster router ships) chose Router, before OCR. Its held-out CER is not distinguishable from the best static pipeline's (-0.012 [-0.024, +0.00004]) and, on images without added noise, higher than it (+0.006 [+0.002, +0.011]). The rule was replaced after the held-out results were seen, so the held-out numbers of the shipped router are not a clean estimate. The fresh texts were generated afterwards.
 
-Criteria, with paired differences. 1 to 3 were fixed before the first measurement, 4 before the fresh texts were read.
+Criteria, with paired differences. 1 to 3 were fixed before the first measurement, 4 before the fresh texts were read, 5 before the real web pages were read.
 
 1. Lower CER on held-out texts than the best static pipeline: **met** (-0.020 [-0.031, -0.011]).
 2. Not worse than the 0.4 router, which needs EasyOCR: **met** (-0.018 [-0.029, -0.008]).
 3. Not worse than the best static pipeline on browser pages: **met** (+0.000 [+0.000, +0.000]).
 4. Lower CER on fresh texts than the best static pipeline: **met** (-0.007 [-0.013, -0.002]).
+5. Not worse than the best static pipeline on real web pages: **met** (+0.000 [+0.000, +0.000]).
 
 ## Results
 
@@ -96,6 +97,22 @@ Held-out texts rendered by headless Chrome: light and dark themes, device scale 
 | Oracle over the whole pool | 0.003 [0.001, 0.005] | -0.004 [-0.005, -0.002] | 160 |
 
 Shipped policy against 0.4 Tesseract (`enhance_auto`): -0.005 [-0.011, -0.001].
+
+### Real web pages
+
+Text elements of real websites (VisualWebBench, element OCR), cropped to the annotated box. Ground truth is the element's text in the page source; some boxes show less of it (truncated or rotating elements), which raises every policy's CER alike.
+
+| Policy | CER | Difference to best static | Time, ms |
+|---|---|---|---|
+| Router, before OCR | 0.048 [0.021, 0.082] | +0.010 [+0.001, +0.020] | 234 |
+| **Router, cascade (shipped)** | 0.039 [0.016, 0.067] | +0.000 [+0.000, +0.000] | 259 |
+| Always `light_up2_median3_psm6` (best static) | 0.039 [0.016, 0.067] |  | 258 |
+| Always `light_gauss1_psm6` | 0.098 [0.065, 0.135] | +0.059 [+0.037, +0.084] | 197 |
+| Always `enhance_auto` (0.4 Tesseract) | 0.039 [0.016, 0.066] | +0.001 [-0.010, +0.011] | 242 |
+| Oracle over the shipped pipelines | 0.036 [0.014, 0.064] | -0.002 [-0.005, -0.001] | 252 |
+| Oracle over the whole pool | 0.029 [0.008, 0.056] | -0.010 [-0.018, -0.004] | 230 |
+
+Shipped policy against 0.4 Tesseract (`enhance_auto`): -0.001 [-0.011, +0.010].
 
 ### Receipts
 
@@ -166,7 +183,7 @@ Held-out texts.
 
 One line per router as the time weight grows from 0. Only Router, cascade ships.
 
-One process, one machine, one-minute load average 3.7 to 5.7. Feature extraction (5.9 ms per image) is not included.
+One process, one machine, one-minute load average 3.7 to 5.7. Feature extraction (5.4 ms per image) is not included.
 
 ## Pipeline selection
 
@@ -219,6 +236,7 @@ Spelling corrector, 600 validation images: CER 0.048 [0.036, 0.062] without it, 
 
 ```bash
 venv/bin/python benchmarks/browser.py            # browser pages (needs Chrome)
+venv/bin/python benchmarks/realweb.py            # real web pages (170 MB download)
 venv/bin/python benchmarks/run_eval.py           # every pipeline over the corpus
 venv/bin/python benchmarks/run_eval.py --timing  # timings, on an idle machine
 venv/bin/python benchmarks/train_router.py       # selection, evaluation, packaged model
