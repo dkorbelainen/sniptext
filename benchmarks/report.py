@@ -46,6 +46,12 @@ _SLICES = (
         "Held-out texts rendered by headless Chrome: light and dark themes, device scale 1, 1.5 "
         "and 2, no degradation.\n",
     ),
+    (
+        "real_web",
+        "Real web pages",
+        "Text elements of real websites (VisualWebBench, element OCR), cropped to the annotated "
+        "box. Ground truth is the element's text in the page source.\n",
+    ),
     ("ood", "Receipts", "Photographed receipts (SROIE).\n"),
 )
 
@@ -168,6 +174,14 @@ def _criteria(ev: dict) -> str:
                 "4. Lower CER on fresh texts than the best static pipeline",
                 c["confirm_beats_best_static"],
                 c["confirm_delta"],
+            )  # fmt: skip
+        )
+    if c.get("real_web_delta"):
+        lines.append(
+            line(
+                "5. Not worse than the best static pipeline on real web pages",
+                c["real_web_not_worse"],
+                c["real_web_delta"],
             )  # fmt: skip
         )
     return "\n".join(lines) + "\n"
@@ -363,6 +377,9 @@ def _plot_curve(ev: dict, path: Path) -> None:
 def render(ev: dict, corrector: dict, environment: dict | None, commit: str, generated: str) -> str:
     card = ev["dataset"]
     routed = ev["shipped"] != "static"
+    has_real_web = "real_web" in ev["slices"]
+    real_web = ", real web pages" if has_real_web else ""
+    fifth = ", 5 before the real web pages were read" if has_real_web else ""
     splits = ", ".join(f"{name} {count}" for name, count in card["by_split"].items())
     actions = ", ".join(f"`{name}`" for name in ev["actions"])
     loads = [sample[0] for timing_pass in ev["loadavg"] for sample in timing_pass]
@@ -387,8 +404,8 @@ def render(ev: dict, corrector: dict, environment: dict | None, commit: str, gen
         f"strings ({card['by_content']['ui']}) from UD English-EWT, UD Russian-GSD and CPython "
         "3.12. Random font, 11 to 30 px, six colour schemes, up to two degradations out of blur, "
         "noise, JPEG, rescaling and low contrast.\n",
-        "Train, validation and test share no text. Receipts, browser pages and fresh texts are "
-        f"not used for fitting or selection.{chrome}\n",
+        f"Train, validation and test share no text. Receipts, browser pages{real_web} and fresh "
+        f"texts are not used for fitting or selection.{chrome}\n",
         "## Shipped policy\n",
     ]
 
@@ -408,7 +425,7 @@ def render(ev: dict, corrector: dict, environment: dict | None, commit: str, gen
         out.append(f"No router ships: `{ev['best_static']}` runs on every image.\n")
     out += [
         "Criteria, with paired differences. 1 to 3 were fixed before the first measurement, 4 "
-        "before the fresh texts were read.\n"
+        f"before the fresh texts were read{fifth}.\n"
         if ev["criteria"]["confirm_delta"]
         else "Criteria fixed before the measurement, with paired differences.\n",
         _criteria(ev),
@@ -482,6 +499,7 @@ def render(ev: dict, corrector: dict, environment: dict | None, commit: str, gen
         "## Reproduce\n",
         "```bash\n"
         "venv/bin/python benchmarks/browser.py            # browser pages (needs Chrome)\n"
+        "venv/bin/python benchmarks/realweb.py            # real web pages (170 MB download)\n"
         "venv/bin/python benchmarks/run_eval.py           # every pipeline over the corpus\n"
         "venv/bin/python benchmarks/run_eval.py --timing  # timings, on an idle machine\n"
         "venv/bin/python benchmarks/train_router.py       # selection, evaluation, packaged model\n"

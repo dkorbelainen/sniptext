@@ -9,7 +9,8 @@ Two passes over the same samples:
 
 Sources: rendered screen text split by text into train / val / test plus an
 unseen-font slice, photographed receipts (SROIE), pages rendered by a browser,
-and a confirmation slice rendered from texts that share nothing with the others.
+text elements of real web pages (VisualWebBench), and a confirmation slice
+rendered from texts that share nothing with the others.
 Records are appended to a .partial.jsonl file, so an interrupted run continues
 with --resume.
 """
@@ -48,7 +49,7 @@ from sniptext.router import CONF_STAT_NAMES, conf_stats
 
 LANGUAGE = "eng+rus"
 DEV_SPLITS = ("train", "val")
-EVAL_SLICES = ("test", "unseen_font", "ood", "browser", "confirm")
+EVAL_SLICES = ("test", "unseen_font", "ood", "browser", "confirm", "real_web")
 _HERE = Path(__file__).resolve().parent
 _RESULTS = _HERE / "results.json"
 _PARTIAL = _HERE / "results.partial.jsonl"
@@ -57,11 +58,14 @@ _TIMING_PARTIAL = _HERE / "timing.partial.jsonl"
 _SYNTH_DIR = _HERE / "data" / "synthetic"
 _CONFIRM_DIR = _HERE / "data" / "confirm"
 _MANIFEST = _HERE / "data" / "browser" / "manifest.json"
+_REAL_WEB = _HERE / "data" / "realweb" / "manifest.json"
 _META = ("source", "split", "text_id", "lang", "content", "font", "font_size", "theme",
          "degradation", "scale", "gt")  # fmt: skip
 
 
-def collect_samples(seed: int, sroie_limit: int, manifest=_MANIFEST) -> list[dict]:
+def collect_samples(
+    seed: int, sroie_limit: int, manifest=_MANIFEST, real_web=_REAL_WEB
+) -> list[dict]:
     items = load_items(seed)
     samples = [dataclasses.asdict(s) for s in generate(_SYNTH_DIR, items, seed=seed)]
     for path, gt in load_sroie(limit=sroie_limit):
@@ -81,8 +85,9 @@ def collect_samples(seed: int, sroie_limit: int, manifest=_MANIFEST) -> list[dic
                 "scale": 1.0,
             }  # fmt: skip
         )
-    if Path(manifest).exists():
-        samples += json.loads(Path(manifest).read_text())
+    for listed in (manifest, real_web):
+        if Path(listed).exists():
+            samples += json.loads(Path(listed).read_text())
     # Texts that share nothing with the pool above: a slice to confirm the shipped policy on.
     fresh = fresh_items(load_items(CONFIRM_SEED), items, CONFIRM_TEXTS, CONFIRM_SEED)
     if fresh:

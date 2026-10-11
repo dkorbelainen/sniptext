@@ -90,10 +90,24 @@ def test_collect_samples_adds_the_browser_manifest(tmp_path, monkeypatch):
     monkeypatch.setattr(
         run_eval, "load_sroie", lambda limit: iter([(tmp_path / "r.jpg", "TOTAL 5")])
     )
-    samples = run_eval.collect_samples(42, 1, manifest)
+    missing = tmp_path / "missing.json"
+    samples = run_eval.collect_samples(42, 1, manifest, missing)
     assert [s["split"] for s in samples] == ["ood", "browser"]
     assert samples[0]["scale"] == 1.0 and samples[0]["gt"] == "TOTAL 5"
-    assert run_eval.collect_samples(42, 1, tmp_path / "missing.json")[-1]["split"] == "ood"
+    assert run_eval.collect_samples(42, 1, missing, missing)[-1]["split"] == "ood"
+
+
+def test_collect_samples_adds_the_real_web_manifest(tmp_path, monkeypatch):
+    real_web = tmp_path / "real.json"
+    real_web.write_text(
+        json.dumps([{**sample_dict("w.png"), "source": "visualwebbench", "split": "real_web"}])
+    )
+    monkeypatch.setattr(run_eval, "generate", lambda out, items, seed: [])
+    monkeypatch.setattr(run_eval, "load_items", lambda seed: [])
+    monkeypatch.setattr(run_eval, "load_sroie", lambda limit: iter([(tmp_path / "r.jpg", "T")]))
+    samples = run_eval.collect_samples(42, 1, tmp_path / "missing.json", real_web)
+    assert [s["split"] for s in samples] == ["ood", "real_web"]
+    assert "real_web" in run_eval.EVAL_SLICES
 
 
 def test_bootstrap_of_a_constant_is_that_constant():
@@ -198,7 +212,8 @@ def test_collect_samples_appends_the_confirmation_slice(tmp_path, monkeypatch):
     monkeypatch.setattr(run_eval, "load_sroie", lambda limit: iter([(tmp_path / "r.jpg", "T")]))
     monkeypatch.setattr(run_eval, "fresh_items", fresh)
     monkeypatch.setattr(run_eval, "generate_slice", render)
-    samples = run_eval.collect_samples(42, 1, tmp_path / "missing.json")
+    missing = tmp_path / "missing.json"
+    samples = run_eval.collect_samples(42, 1, missing, missing)
     assert [s["split"] for s in samples] == ["ood", "confirm"]
     assert seen["args"] == (["items1042"], ["items42"], 150, 1042)
     assert seen["render"] == (["fresh text"], "confirm", 1042)

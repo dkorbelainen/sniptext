@@ -149,3 +149,17 @@ def test_the_time_figure_names_the_router_that_ships(tmp_path):
     section = text.split("## Time")[1].split("\n## ")[0]
     label = {"cascade": "Router, cascade", "pre_ocr": "Router, before OCR"}[ev["shipped"]]
     assert f"Only {label} ships." in section
+
+
+def test_real_web_pages_get_a_section_and_a_criterion(tmp_path):
+    text = report.render(evaluation(tmp_path, real_web=True), CORRECTOR, None, "c", "d")
+    assert "### Real web pages" in text and "VisualWebBench" in text
+    assert "5. Not worse than the best static pipeline on real web pages: **" in text
+    assert "5 before the real web pages were read" in text
+    assert "real web pages and fresh texts are not used for fitting" in text
+
+
+def test_a_run_without_real_web_pages_does_not_mention_them(tmp_path):
+    text = report.render(evaluation(tmp_path), CORRECTOR, None, "c", "d")
+    for absent in ("### Real web pages", "on real web pages", ", real web pages", "VisualWebBench"):
+        assert absent not in text
