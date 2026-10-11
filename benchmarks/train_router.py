@@ -439,16 +439,19 @@ def run(results, timing, legacy_path, model_path, eval_path, candidates=CANDIDAT
     test_delta = _delta(slices, "test", shipped_label)
     browser_delta = _delta(slices, "browser", shipped_label)
     confirm_delta = _delta(slices, "confirm", shipped_label)
+    real_web_delta = _delta(slices, "real_web", shipped_label)
     preregistered_label = static_label if preregistered == "static" else f"router_{preregistered}"
     criteria = {
         "router_beats_best_static": bool(test_delta is not None and test_delta[2] < 0),
         "not_worse_than_v04": bool("test" in v04_delta and v04_delta["test"][1] <= 0),
         "browser_not_worse": None if browser_delta is None else bool(browser_delta[1] <= 0),
         "confirm_beats_best_static": bool(confirm_delta is not None and confirm_delta[2] < 0),
+        "real_web_not_worse": None if real_web_delta is None else bool(real_web_delta[1] <= 0),
         "test_delta": test_delta,
         "v04_delta": v04_delta.get("test"),
         "browser_delta": browser_delta,
         "confirm_delta": confirm_delta,
+        "real_web_delta": real_web_delta,
         "confirm_delta_v04_tesseract": tesseract_delta.get("confirm"),
         "preregistered_policy": preregistered,
         "preregistered_test_delta": _delta(slices, "test", preregistered_label),

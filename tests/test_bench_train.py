@@ -27,13 +27,14 @@ NOISE = FEATURE_NAMES.index("noise_level")
 pytestmark = pytest.mark.usefixtures("fast_bootstrap")
 
 
-def fake_run(tmp_path, n_texts=100, seed=0, helpful=True, empty_alt=False):
+def fake_run(tmp_path, n_texts=100, seed=0, helpful=True, empty_alt=False, real_web=False):
     """p_alt is the better pipeline exactly on noisy images; p_same copies p_base."""
     tmp_path.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(seed)
     rows, timing, legacy = [], {}, {}
+    splits = (*SPLITS, "real_web") if real_web else SPLITS
     for t in range(n_texts):
-        split = SPLITS[t % len(SPLITS)]
+        split = splits[t % len(splits)]
         for r in range(2):
             features = rng.random(len(FEATURE_NAMES))
             noisy = features[NOISE] > 0.5
@@ -73,7 +74,7 @@ def fake_run(tmp_path, n_texts=100, seed=0, helpful=True, empty_alt=False):
             if split != "train" or r == 0:
                 timing[image] = {"features": 0.002,
                                  "time": {"p_base": 0.10, "p_alt": 0.12, "p_same": 0.10, "p_bad": 0.10}}  # fmt: skip
-            if split not in ("browser", "confirm"):
+            if split not in ("browser", "confirm", "real_web"):
                 legacy[image] = {"split": split, "cer": [base, 0.3, 0.3], "action": 0,
                                  "time": [0.1, 0.05]}  # fmt: skip
     paths = {
@@ -376,3 +377,21 @@ def test_the_browser_criterion_is_not_judged_without_the_slice(tmp_path):
     ev = tr.run(p["results"], p["timing"], p["legacy"], p["model"], p["eval"], candidates=FAST)
     assert ev["criteria"]["browser_delta"] is None
     assert ev["criteria"]["browser_not_worse"] is None
+
+
+def test_the_real_web_criterion_follows_the_slice(tmp_path):
+    p = fake_run(tmp_path / "with", real_web=True)
+    ev = tr.run(p["results"], p["timing"], p["legacy"], p["model"], p["eval"], candidates=FAST)
+    mean, low, high = ev["criteria"]["real_web_delta"]
+    assert low <= mean <= high
+    assert ev["criteria"]["real_web_not_worse"] is (low <= 0)
+    assert [s["policy"] for s in ev["slices"]["real_web"]][:2] == [
+        "router_pre_ocr",
+        "router_cascade",
+    ]
+    assert "real_web" in ev["per_slice_delta_v04_tesseract"] or V04.name not in NAMES
+
+    p = fake_run(tmp_path / "without")
+    ev = tr.run(p["results"], p["timing"], p["legacy"], p["model"], p["eval"], candidates=FAST)
+    assert ev["criteria"]["real_web_delta"] is None
+    assert ev["criteria"]["real_web_not_worse"] is None
